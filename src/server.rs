@@ -53,14 +53,17 @@ pub fn spawn_bash_and_listen() {
 
     loop {
         let input = incoming_rx.recv().expect("Nothing to receive");
+        println!("Received input: {:?}, writing to Bash...", input);
         bash_in
             .write(input.as_bytes())
             .expect("Failed to write input");
 
+        print!("Reading line from Bash...");
         let mut output = String::new();
         bash_out
             .read_line(&mut output)
             .expect("Failed to read line");
+        println!(" {:?}. Sending back...", output);
 
         outgoing_sx.send(output);
     }

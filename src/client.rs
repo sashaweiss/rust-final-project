@@ -1,17 +1,25 @@
-use std::io::Write;
-use std::io::{BufRead, BufReader};
+use std::io::{stdin, BufRead, BufReader, Write};
 use std::net::TcpStream;
+use std::thread;
 
 pub fn connect_and_echo() {
-    let mut stream = TcpStream::connect("127.0.0.1:8080").unwrap();
+    let mut writestream = TcpStream::connect("127.0.0.1:8080").unwrap();
+    let mut readstream = BufReader::new(writestream.try_clone().expect("Failed to clone stream"));
 
-    stream
-        .write("echo hello world\n".as_bytes())
-        .expect("Failed to stream echo");
+    thread::spawn(move || {
+        let mut lines = BufReader::new(stdin()).lines();
 
-    let mut response = String::new();
-    BufReader::new(stream)
-        .read_line(&mut response)
-        .expect("Failed to read line");
-    println!("response: {}", response);
+        while let Some(Ok(mut line)) = lines.next() {
+            line.push('\n');
+
+            writestream
+                .write(line.as_bytes())
+                .expect("Failed to stream echo");
+        }
+    });
+
+    let mut lines = readstream.lines();
+    while let Some(Ok(response)) = lines.next() {
+        println!("response: {}", response);
+    }
 }
