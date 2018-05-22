@@ -1,11 +1,15 @@
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
-use std::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, Stdio};
+use std::process::{Command, Stdio};
+use std::thread;
+
+use chan;
 
 pub fn spawn_bash_and_listen() {
     let bash_child = Command::new("bash")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
         .spawn()
         .expect("failed to start bash");
 
@@ -14,14 +18,50 @@ pub fn spawn_bash_and_listen() {
 
     let listener = TcpListener::bind("127.0.0.1:8080").unwrap();
 
-    let (stream, _) = listener.accept().unwrap();
-    let mut bufstream = BufReader::new(stream);
+    let (incoming_sx, incoming_rx) = chan::sync::<String>(0);
+    let (outgoing_sx, outgoing_rx) = chan::sync::<String>(0);
 
-    let mut input = String::new();
-    bufstream.read_line(&mut input);
-    bash_in.write(input.as_bytes());
+    thread::spawn(move || {
+        for stream in listener.incoming() {
+            match stream {
+                Ok(mut stream) => {
+                    let sx_thread = incoming_sx.clone();
+                    let rx_thread = outgoing_rx.clone();
 
-    let mut output = String::new();
-    bash_out.read_line(&mut output);
-    println!("output: {}", output);
+                    let stream_reader =
+                        BufReader::new(stream.try_clone().expect("Failed to clone stream"));
+                    thread::spawn(move || {
+                        let mut lines = stream_reader.lines();
+
+                        while let Some(Ok(mut line)) = lines.next() {
+                            line.push('\n');
+                            sx_thread.send(line);
+                        }
+                    });
+
+                    thread::spawn(move || loop {
+                        let output = rx_thread.recv().expect("Nothing to receive");
+                        stream.write(output.as_bytes()).expect("Failed to write");
+                    });
+                }
+                Err(e) => {
+                    panic!("Oh no: {}", e);
+                }
+            }
+        }
+    });
+
+    loop {
+        let input = incoming_rx.recv().expect("Nothing to receive");
+        bash_in
+            .write(input.as_bytes())
+            .expect("Failed to write input");
+
+        let mut output = String::new();
+        bash_out
+            .read_line(&mut output)
+            .expect("Failed to read line");
+
+        outgoing_sx.send(output);
+    }
 }
