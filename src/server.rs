@@ -1,10 +1,9 @@
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
 use std::process::{Command, Stdio};
+use std::sync::mpsc::channel;
 use std::sync::{Arc, Mutex};
 use std::thread;
-
-use chan;
 
 pub fn spawn_bash_and_listen() {
     let bash_child = Command::new("bash")
@@ -19,33 +18,33 @@ pub fn spawn_bash_and_listen() {
 
     let listener = TcpListener::bind("127.0.0.1:8080").unwrap();
 
-    let (incoming_sx, incoming_rx) = chan::sync::<String>(0);
-    let (outgoing_sx, outgoing_rx) = chan::sync::<String>(0);
+    let (incoming_sx, incoming_rx) = channel::<String>();
 
-    let n_connections = Arc::new(Mutex::new(0));
+    let outgoing_sxs = Arc::new(Mutex::new(Vec::new()));
+    // let (outgoing_sx, outgoing_rx) = channel::<String>();
 
-    let nc_thread = n_connections.clone();
+    let outgoing_sxs_thread = outgoing_sxs.clone();
     thread::spawn(move || {
         for stream in listener.incoming() {
             match stream {
                 Ok(mut stream) => {
-                    let nc_stream_thread = nc_thread.clone();
-                    let incoming_stream_sx = incoming_sx.clone();
-                    let outgoing_stream_rx = outgoing_rx.clone();
+                    let incoming_sx_stream = incoming_sx.clone();
+                    let outgoing_sxs_stream = outgoing_sxs_thread.clone();
                     thread::spawn(move || {
                         // TODO: lock some item to prevent sending/receiving while threads spin up
-
-                        {
-                            *nc_stream_thread.lock().expect("Poisoned stream count") += 1;
-                        }
 
                         println!(
                             "Received connection from {}!",
                             stream.peer_addr().expect("Failed to get stream remote IP")
                         );
 
-                        let sx_thread = incoming_stream_sx.clone();
-                        let rx_thread = outgoing_stream_rx.clone();
+                        let (outgoing_sx_stream, outgoing_rx_stream) = channel::<String>();
+                        {
+                            outgoing_sxs_stream
+                                .lock()
+                                .expect("Poisoned Vec of outgoing sxs")
+                                .push(outgoing_sx_stream);
+                        }
 
                         let read_stream =
                             BufReader::new(stream.try_clone().expect("Failed to clone stream"));
@@ -65,7 +64,7 @@ pub fn spawn_bash_and_listen() {
                                             line,
                                             thread::current().id()
                                         );
-                                        sx_thread.send(line);
+                                        incoming_sx_stream.send(line);
                                     }
                                     Err(e) => {
                                         panic!(
@@ -89,7 +88,7 @@ pub fn spawn_bash_and_listen() {
                                 thread::current().id()
                             );
 
-                            while let Some(output) = rx_thread.recv() {
+                            while let Ok(output) = outgoing_rx_stream.recv() {
                                 println!(
                                     "Thread {:?} received response line {:?}",
                                     thread::current().id(),
@@ -105,7 +104,7 @@ pub fn spawn_bash_and_listen() {
                             }
 
                             println!(
-                                "Thread {:?} received None line, shutting down...",
+                                "Thread {:?} receiver closed, shutting down...",
                                 thread::current().id()
                             );
                         });
@@ -118,10 +117,6 @@ pub fn spawn_bash_and_listen() {
                         if let Err(e) = write_handle.join() {
                             println!("Reader thread panicked with message {:?}", e);
                         };
-
-                        {
-                            *nc_stream_thread.lock().expect("Poisoned stream count") -= 1;
-                        }
                     });
                 }
                 Err(e) => {
@@ -144,12 +139,13 @@ pub fn spawn_bash_and_listen() {
             .read_line(&mut output)
             .expect("Failed to read line");
 
-        {
-            let guard = *n_connections.lock().expect("Poisoned stream count");
-            println!(" {:?}. Sending back {} times...", output, guard);
-            for _ in 0..guard {
-                outgoing_sx.send(output.clone());
-            }
-        }
+        let mut guard = outgoing_sxs.lock().expect("Poisoned Vec of outgoing sxs");
+        println!(
+            "Received line {:?}, attempting to send to {} clients",
+            output,
+            guard.len()
+        );
+        guard.retain(|outgoing_sx| outgoing_sx.send(output.clone()).is_ok());
+        println!("{} clients successfully sent to", guard.len());
     }
 }
