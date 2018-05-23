@@ -4,7 +4,7 @@ use std::thread;
 
 pub fn connect_and_echo() {
     let mut writestream = TcpStream::connect("127.0.0.1:8080").unwrap();
-    let mut readstream = BufReader::new(writestream.try_clone().expect("Failed to clone stream"));
+    let readstream = BufReader::new(writestream.try_clone().expect("Failed to clone stream"));
 
     thread::spawn(move || {
         let mut lines = BufReader::new(stdin()).lines();
