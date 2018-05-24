@@ -1,5 +1,5 @@
-use std::io::{BufRead, BufReader, Read, Write};
-use std::net::TcpListener;
+use std::io::{BufRead, BufReader, Write};
+use std::net::{TcpListener, TcpStream};
 use std::process::{Command, Stdio};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
@@ -21,7 +21,6 @@ pub fn spawn_bash_and_listen() {
     let (incoming_sx, incoming_rx) = channel::<String>();
 
     let outgoing_sxs = Arc::new(Mutex::new(Vec::new()));
-    // let (outgoing_sx, outgoing_rx) = channel::<String>();
 
     let outgoing_sxs_thread = outgoing_sxs.clone();
     thread::spawn(move || {
@@ -95,13 +94,13 @@ pub fn spawn_bash_and_listen() {
     }
 }
 
-fn receive_and_pass_along_line<R: Read>(stream: R, incoming_sx: Sender<String>) {
+fn receive_and_pass_along_line(stream: TcpStream, incoming_sx: Sender<String>) {
     println!(
         "Thread {:?} starting up to read stream",
         thread::current().id()
     );
 
-    let mut lines = BufReader::new(stream).lines();
+    let mut lines = BufReader::new(&stream).lines();
     while let Some(maybe_line) = lines.next() {
         match maybe_line {
             Ok(mut line) => {
@@ -129,7 +128,7 @@ fn receive_and_pass_along_line<R: Read>(stream: R, incoming_sx: Sender<String>) 
     );
 }
 
-fn relay_response_back<W: Write>(mut stream: W, outgoing_rx: Receiver<String>) {
+fn relay_response_back(mut stream: TcpStream, outgoing_rx: Receiver<String>) {
     println!(
         "Thread {:?} starting to read response lines",
         thread::current().id()
@@ -141,12 +140,17 @@ fn relay_response_back<W: Write>(mut stream: W, outgoing_rx: Receiver<String>) {
             thread::current().id(),
             output
         );
-        if let Err(e) = stream.write(output.as_bytes()) {
-            panic!(
-                "Stream in thread {:?} failed to write with error {}",
-                thread::current().id(),
-                e
-            );
+
+        println!("stream: {:?}", stream);
+        match stream.write(output.as_bytes()) {
+            Err(e) => {
+                panic!(
+                    "Stream in thread {:?} failed to write with error {}",
+                    thread::current().id(),
+                    e
+                );
+            }
+            Ok(e) => println!("e is {}", e),
         }
     }
 
