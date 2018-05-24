@@ -96,16 +96,21 @@ fn handle_new_stream(
         stream.peer_addr().expect("Failed to get stream remote IP")
     );
 
+    let alive = Arc::new(Mutex::new(true));
+
+    // Handle reading from the stream
     let read_stream = stream.try_clone().unwrap();
+    let al = alive.clone();
     let receive_handle = thread::spawn(move || {
-        receive_and_pass_along_line(read_stream, stm_shl_sx);
+        receive_and_pass_along_line(read_stream, stm_shl_sx, al);
     });
 
+    // Handle writing to the stream
     let (shl_stm_sx, shl_stm_rx) = channel::<String>();
     {
         shl_stm_sxs.lock().unwrap().push(shl_stm_sx);
     }
-    let response_handle = thread::spawn(move || relay_response_back(stream, shl_stm_rx));
+    let response_handle = thread::spawn(move || relay_response_back(stream, shl_stm_rx, alive));
 
     // TODO: Unlock read/write signal
 
@@ -117,7 +122,11 @@ fn handle_new_stream(
     };
 }
 
-fn receive_and_pass_along_line(stream: TcpStream, stm_shl: Sender<String>) {
+fn receive_and_pass_along_line(
+    stream: TcpStream,
+    stm_shl: Sender<String>,
+    alive: Arc<Mutex<bool>>,
+) {
     println!(
         "Thread {:?} starting up to read stream",
         thread::current().id()
@@ -129,7 +138,7 @@ fn receive_and_pass_along_line(stream: TcpStream, stm_shl: Sender<String>) {
             Ok(mut line) => {
                 line.push('\n');
                 println!(
-                    "Sending line {} from thread {:?}",
+                    "Sending line {:?} from thread {:?}",
                     line,
                     thread::current().id()
                 );
@@ -145,13 +154,18 @@ fn receive_and_pass_along_line(stream: TcpStream, stm_shl: Sender<String>) {
         }
     }
 
+    *alive.lock().unwrap() = false;
     println!(
-        "Thread {:?} read None from stream, shutting down...",
+        "Stream in thread {:?} is closed, marking closed and shutting down...",
         thread::current().id()
     );
 }
 
-fn relay_response_back(mut stream: TcpStream, shl_stm_rx: Receiver<String>) {
+fn relay_response_back(
+    mut stream: TcpStream,
+    shl_stm_rx: Receiver<String>,
+    alive: Arc<Mutex<bool>>,
+) {
     println!(
         "Thread {:?} starting to read response lines",
         thread::current().id()
@@ -164,6 +178,15 @@ fn relay_response_back(mut stream: TcpStream, shl_stm_rx: Receiver<String>) {
             output
         );
 
+        {
+            if !*alive.lock().unwrap() {
+                println!(
+                    "Stream in thread {:?} is closed, shutting down...",
+                    thread::current().id()
+                );
+                return;
+            }
+        }
         match stream.write(output.as_bytes()) {
             Err(e) => {
                 panic!(
@@ -172,7 +195,7 @@ fn relay_response_back(mut stream: TcpStream, shl_stm_rx: Receiver<String>) {
                     e
                 );
             }
-            Ok(_e) => {}
+            Ok(_) => {}
         }
     }
 
