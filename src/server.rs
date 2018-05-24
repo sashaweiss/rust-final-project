@@ -18,60 +18,32 @@ pub fn spawn_bash_and_listen() {
 
     let listener = TcpListener::bind("127.0.0.1:8080").unwrap();
 
-    let (incoming_sx, incoming_rx) = channel::<String>();
+    let (stream_to_shell_sx, stream_to_shell_rx) = channel::<String>();
 
-    let outgoing_sxs = Arc::new(Mutex::new(Vec::new()));
+    let shell_to_stream_sxs = Arc::new(Mutex::new(Vec::new()));
 
-    let outgoing_sxs_thread = outgoing_sxs.clone();
-    thread::spawn(move || {
-        for stream in listener.incoming() {
-            match stream {
-                Ok(mut stream) => {
-                    let incoming_sx_stream = incoming_sx.clone();
-                    let outgoing_sxs_stream = outgoing_sxs_thread.clone();
-                    thread::spawn(move || {
-                        // TODO: lock some item to prevent sending/receiving while threads spin up
-
-                        println!(
-                            "Received connection from {}!",
-                            stream.peer_addr().expect("Failed to get stream remote IP")
-                        );
-
-                        let read_stream = stream.try_clone().expect("Failed to clone stream");
-                        let receive_handle = thread::spawn(move || {
-                            receive_and_pass_along_line(read_stream, incoming_sx_stream);
+    {
+        let shell_to_stream_sxs = shell_to_stream_sxs.clone();
+        thread::spawn(move || {
+            for stream in listener.incoming() {
+                match stream {
+                    Ok(mut stream) => {
+                        let sx = stream_to_shell_sx.clone();
+                        let sxs = shell_to_stream_sxs.clone();
+                        thread::spawn(move || {
+                            handle_new_stream(sx, sxs, stream);
                         });
-
-                        let (outgoing_sx_stream, outgoing_rx_stream) = channel::<String>();
-                        {
-                            outgoing_sxs_stream
-                                .lock()
-                                .expect("Poisoned Vec of outgoing sxs")
-                                .push(outgoing_sx_stream);
-                        }
-
-                        let response_handle =
-                            thread::spawn(move || relay_response_back(stream, outgoing_rx_stream));
-
-                        // TODO: Unlock read/write signal
-
-                        if let Err(e) = receive_handle.join() {
-                            println!("Command receiver thread panicked with message {:?}", e);
-                        };
-                        if let Err(e) = response_handle.join() {
-                            println!("Response relayer thread panicked with message {:?}", e);
-                        };
-                    });
-                }
-                Err(e) => {
-                    panic!("Oh no: {}", e);
+                    }
+                    Err(e) => {
+                        panic!("Oh no: {}", e);
+                    }
                 }
             }
-        }
-    });
+        });
+    }
 
     loop {
-        let input = incoming_rx.recv().expect("Nothing to receive");
+        let input = stream_to_shell_rx.recv().expect("Nothing to receive");
         println!("Received input: {:?}, writing to Bash...", input);
         bash_in
             .write(input.as_bytes())
@@ -83,18 +55,53 @@ pub fn spawn_bash_and_listen() {
             .read_line(&mut output)
             .expect("Failed to read line");
 
-        let mut guard = outgoing_sxs.lock().expect("Poisoned Vec of outgoing sxs");
+        let mut guard = shell_to_stream_sxs
+            .lock()
+            .expect("Poisoned Vec of outgoing sxs");
         println!(
             "Received line {:?}, attempting to send to {} clients",
             output,
             guard.len()
         );
-        guard.retain(|outgoing_sx| outgoing_sx.send(output.clone()).is_ok());
+        guard.retain(|shell_to_stream_sx| shell_to_stream_sx.send(output.clone()).is_ok());
         println!("{} clients successfully sent to", guard.len());
     }
 }
 
-fn receive_and_pass_along_line(stream: TcpStream, incoming_sx: Sender<String>) {
+fn handle_new_stream(
+    stream_to_shell_sx: Sender<String>,
+    shell_to_stream_sxs: Arc<Mutex<Vec<Sender<String>>>>,
+    stream: TcpStream,
+) {
+    // TODO: lock some item to prevent sending/receiving while threads spin up
+
+    println!(
+        "Received connection from {}!",
+        stream.peer_addr().expect("Failed to get stream remote IP")
+    );
+
+    let read_stream = stream.try_clone().unwrap();
+    let receive_handle = thread::spawn(move || {
+        receive_and_pass_along_line(read_stream, stream_to_shell_sx);
+    });
+
+    let (shell_to_stream_sx, shell_to_stream_rx) = channel::<String>();
+    {
+        shell_to_stream_sxs.lock().unwrap().push(shell_to_stream_sx);
+    }
+    let response_handle = thread::spawn(move || relay_response_back(stream, shell_to_stream_rx));
+
+    // TODO: Unlock read/write signal
+
+    if let Err(e) = receive_handle.join() {
+        println!("Command receiver thread panicked with message {:?}", e);
+    };
+    if let Err(e) = response_handle.join() {
+        println!("Response relayer thread panicked with message {:?}", e);
+    };
+}
+
+fn receive_and_pass_along_line(stream: TcpStream, stream_to_shell: Sender<String>) {
     println!(
         "Thread {:?} starting up to read stream",
         thread::current().id()
@@ -110,7 +117,7 @@ fn receive_and_pass_along_line(stream: TcpStream, incoming_sx: Sender<String>) {
                     line,
                     thread::current().id()
                 );
-                incoming_sx.send(line).unwrap();
+                stream_to_shell.send(line).unwrap();
             }
             Err(e) => {
                 panic!(
@@ -128,20 +135,19 @@ fn receive_and_pass_along_line(stream: TcpStream, incoming_sx: Sender<String>) {
     );
 }
 
-fn relay_response_back(mut stream: TcpStream, outgoing_rx: Receiver<String>) {
+fn relay_response_back(mut stream: TcpStream, shell_to_stream_rx: Receiver<String>) {
     println!(
         "Thread {:?} starting to read response lines",
         thread::current().id()
     );
 
-    while let Ok(output) = outgoing_rx.recv() {
+    while let Ok(output) = shell_to_stream_rx.recv() {
         println!(
             "Thread {:?} received response line {:?}",
             thread::current().id(),
             output
         );
 
-        println!("stream: {:?}", stream);
         match stream.write(output.as_bytes()) {
             Err(e) => {
                 panic!(
@@ -150,7 +156,7 @@ fn relay_response_back(mut stream: TcpStream, outgoing_rx: Receiver<String>) {
                     e
                 );
             }
-            Ok(e) => println!("e is {}", e),
+            Ok(_e) => {}
         }
     }
 
