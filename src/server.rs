@@ -1,7 +1,7 @@
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpListener;
 use std::process::{Command, Stdio};
-use std::sync::mpsc::channel;
+use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -38,6 +38,11 @@ pub fn spawn_bash_and_listen() {
                             stream.peer_addr().expect("Failed to get stream remote IP")
                         );
 
+                        let read_stream = stream.try_clone().expect("Failed to clone stream");
+                        let receive_handle = thread::spawn(move || {
+                            receive_and_pass_along_line(read_stream, incoming_sx_stream);
+                        });
+
                         let (outgoing_sx_stream, outgoing_rx_stream) = channel::<String>();
                         {
                             outgoing_sxs_stream
@@ -46,76 +51,16 @@ pub fn spawn_bash_and_listen() {
                                 .push(outgoing_sx_stream);
                         }
 
-                        let read_stream =
-                            BufReader::new(stream.try_clone().expect("Failed to clone stream"));
-                        let read_handle = thread::spawn(move || {
-                            println!(
-                                "Thread {:?} starting up to read stream",
-                                thread::current().id()
-                            );
-
-                            let mut lines = read_stream.lines();
-                            while let Some(maybe_line) = lines.next() {
-                                match maybe_line {
-                                    Ok(mut line) => {
-                                        line.push('\n');
-                                        println!(
-                                            "Sending line {} from thread {:?}",
-                                            line,
-                                            thread::current().id()
-                                        );
-                                        incoming_sx_stream.send(line);
-                                    }
-                                    Err(e) => {
-                                        panic!(
-                                            "Stream in thread {:?} failed to read with error {}",
-                                            thread::current().id(),
-                                            e
-                                        );
-                                    }
-                                }
-                            }
-
-                            println!(
-                                "Thread {:?} read None from stream, shutting down...",
-                                thread::current().id()
-                            );
-                        });
-
-                        let write_handle = thread::spawn(move || {
-                            println!(
-                                "Thread {:?} starting to read response lines",
-                                thread::current().id()
-                            );
-
-                            while let Ok(output) = outgoing_rx_stream.recv() {
-                                println!(
-                                    "Thread {:?} received response line {:?}",
-                                    thread::current().id(),
-                                    output
-                                );
-                                if let Err(e) = stream.write(output.as_bytes()) {
-                                    panic!(
-                                        "Stream in thread {:?} failed to write with error {}",
-                                        thread::current().id(),
-                                        e
-                                    );
-                                }
-                            }
-
-                            println!(
-                                "Thread {:?} receiver closed, shutting down...",
-                                thread::current().id()
-                            );
-                        });
+                        let response_handle =
+                            thread::spawn(move || relay_response_back(stream, outgoing_rx_stream));
 
                         // TODO: Unlock read/write signal
 
-                        if let Err(e) = read_handle.join() {
-                            println!("Reader thread panicked with message {:?}", e);
+                        if let Err(e) = receive_handle.join() {
+                            println!("Command receiver thread panicked with message {:?}", e);
                         };
-                        if let Err(e) = write_handle.join() {
-                            println!("Reader thread panicked with message {:?}", e);
+                        if let Err(e) = response_handle.join() {
+                            println!("Response relayer thread panicked with message {:?}", e);
                         };
                     });
                 }
@@ -148,4 +93,65 @@ pub fn spawn_bash_and_listen() {
         guard.retain(|outgoing_sx| outgoing_sx.send(output.clone()).is_ok());
         println!("{} clients successfully sent to", guard.len());
     }
+}
+
+fn receive_and_pass_along_line<R: Read>(stream: R, incoming_sx: Sender<String>) {
+    println!(
+        "Thread {:?} starting up to read stream",
+        thread::current().id()
+    );
+
+    let mut lines = BufReader::new(stream).lines();
+    while let Some(maybe_line) = lines.next() {
+        match maybe_line {
+            Ok(mut line) => {
+                line.push('\n');
+                println!(
+                    "Sending line {} from thread {:?}",
+                    line,
+                    thread::current().id()
+                );
+                incoming_sx.send(line).unwrap();
+            }
+            Err(e) => {
+                panic!(
+                    "Stream in thread {:?} failed to read with error {}",
+                    thread::current().id(),
+                    e
+                );
+            }
+        }
+    }
+
+    println!(
+        "Thread {:?} read None from stream, shutting down...",
+        thread::current().id()
+    );
+}
+
+fn relay_response_back<W: Write>(mut stream: W, outgoing_rx: Receiver<String>) {
+    println!(
+        "Thread {:?} starting to read response lines",
+        thread::current().id()
+    );
+
+    while let Ok(output) = outgoing_rx.recv() {
+        println!(
+            "Thread {:?} received response line {:?}",
+            thread::current().id(),
+            output
+        );
+        if let Err(e) = stream.write(output.as_bytes()) {
+            panic!(
+                "Stream in thread {:?} failed to write with error {}",
+                thread::current().id(),
+                e
+            );
+        }
+    }
+
+    println!(
+        "Thread {:?} receiver closed, shutting down...",
+        thread::current().id()
+    );
 }
