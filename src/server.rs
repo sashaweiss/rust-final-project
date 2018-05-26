@@ -1,18 +1,11 @@
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
-use std::process::{ChildStdin, ChildStdout, Command, Stdio};
+use std::process::Command;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
 pub fn spawn_bash_and_listen() {
-    let bash_child = Command::new("bash")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("failed to start bash");
-
     let listener = TcpListener::bind("127.0.0.1:8080").unwrap();
 
     let (stm_shl_sx, stm_shl_rx) = channel::<String>();
@@ -23,42 +16,50 @@ pub fn spawn_bash_and_listen() {
         handle_incoming_streams(sxs, listener, stm_shl_sx);
     });
 
-    let mut bash_out = BufReader::new(bash_child.stdout.expect("failed to get bash stdout"));
-    let mut bash_in = bash_child.stdin.expect("failed to get stdin: {}");
     loop {
-        pipe_stream_to_shell_and_relay_response(
-            &stm_shl_rx,
-            &shl_stm_sxs,
-            &mut bash_in,
-            &mut bash_out,
-        );
+        pipe_stream_to_shell_and_relay_response(&stm_shl_rx, &shl_stm_sxs);
     }
 }
 
 fn pipe_stream_to_shell_and_relay_response(
     stm_shl_rx: &Receiver<String>,
     shl_stm_sxs: &Arc<Mutex<Vec<Sender<String>>>>,
-    bash_in: &mut ChildStdin,
-    bash_out: &mut BufReader<ChildStdout>,
 ) {
     let input = stm_shl_rx.recv().expect("Nothing to receive");
     println!("MAIN: received input: {:?}, writing to shell...", input);
-    bash_in
-        .write(input.as_bytes())
-        .expect("Failed to write input");
 
-    let mut output = String::new();
-    bash_out
-        .read_line(&mut output)
-        .expect("Failed to read line");
+    let mut words = input.split_whitespace();
+    if let Some(cmd) = words.next() {
+        let mut process = Command::new(cmd);
+        while let Some(arg) = words.next() {
+            process.arg(arg);
+        }
 
-    println!("MAIN: shell returned line {:?}, relaying...", output);
-    let mut guard = shl_stm_sxs
-        .lock()
-        .expect("Poisoned Vec of outgoing sxs");
-    guard.retain(|shl_stm_sx| shl_stm_sx.send(output.clone()).is_ok());
+        match process.output() {
+            Ok(output) => {
+                let stdout = ::std::str::from_utf8(&output.stdout).expect("Non-utf8 stdout");
+                let stderr = ::std::str::from_utf8(&output.stderr).expect("Non-utf8 stderr");
 
-    println!("MAIN: {} clients relayed to", guard.len());
+                println!("MAIN: shell returned stdout {:?}, relaying...", stdout);
+                if stderr != "" {
+                    println!(
+                        "MAIN: shell returned stderr {:?}, thought you should know...",
+                        stderr
+                    );
+                }
+
+                let mut guard = shl_stm_sxs.lock().expect("Poisoned Vec of outgoing sxs");
+                guard.retain(|shl_stm_sx| shl_stm_sx.send(stdout.to_owned()).is_ok());
+
+                println!("MAIN: {} clients relayed to", guard.len());
+            }
+            Err(_) => {
+                println!("MAIN: bad input: {:?}", input);
+            }
+        }
+    } else {
+        println!("MAIN: received empty input");
+    }
 }
 
 fn handle_incoming_streams(
