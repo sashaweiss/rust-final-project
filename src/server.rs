@@ -42,25 +42,23 @@ fn pipe_stream_to_shell_and_relay_response(
     bash_out: &mut BufReader<ChildStdout>,
 ) {
     let input = stm_shl_rx.recv().expect("Nothing to receive");
-    println!("Received input: {:?}, writing to Bash...", input);
+    println!("MAIN: received input: {:?}, writing to shell...", input);
     bash_in
         .write(input.as_bytes())
         .expect("Failed to write input");
 
-    print!("Reading line from Bash...");
     let mut output = String::new();
     bash_out
         .read_line(&mut output)
         .expect("Failed to read line");
 
-    let mut guard = shl_stm_sxs.lock().expect("Poisoned Vec of outgoing sxs");
-    println!(
-        "Received line {:?}, attempting to send to {} clients",
-        output,
-        guard.len()
-    );
+    println!("MAIN: shell returned line {:?}, relaying...", output);
+    let mut guard = shl_stm_sxs
+        .lock()
+        .expect("Poisoned Vec of outgoing sxs");
     guard.retain(|shl_stm_sx| shl_stm_sx.send(output.clone()).is_ok());
-    println!("{} clients successfully sent to", guard.len());
+
+    println!("MAIN: {} clients relayed to", guard.len());
 }
 
 fn handle_incoming_streams(
@@ -92,7 +90,8 @@ fn handle_new_stream(
     // TODO: lock some item to prevent sending/receiving while threads spin up
 
     println!(
-        "Received connection from {}!",
+        "{:?}: Received connection from {}!",
+        thread::current().id(),
         stream.peer_addr().expect("Failed to get stream remote IP")
     );
 
@@ -115,10 +114,18 @@ fn handle_new_stream(
     // TODO: Unlock read/write signal
 
     if let Err(e) = receive_handle.join() {
-        println!("Command receiver thread panicked with message {:?}", e);
+        println!(
+            "{:?}: Command receiver thread panicked with message {:?}",
+            thread::current().id(),
+            e
+        );
     };
     if let Err(e) = response_handle.join() {
-        println!("Response relayer thread panicked with message {:?}", e);
+        println!(
+            "{:?}: Response relayer thread panicked with message {:?}",
+            thread::current().id(),
+            e
+        );
     };
 }
 
@@ -128,8 +135,9 @@ fn receive_and_pass_along_line(
     alive: Arc<Mutex<bool>>,
 ) {
     println!(
-        "Thread {:?} starting up to read stream",
-        thread::current().id()
+        "{:?} reading input from {}",
+        thread::current().id(),
+        stream.peer_addr().unwrap()
     );
 
     let mut lines = BufReader::new(&stream).lines();
@@ -137,11 +145,6 @@ fn receive_and_pass_along_line(
         match maybe_line {
             Ok(mut line) => {
                 line.push('\n');
-                println!(
-                    "Sending line {:?} from thread {:?}",
-                    line,
-                    thread::current().id()
-                );
                 stm_shl.send(line).unwrap();
             }
             Err(e) => {
@@ -156,7 +159,7 @@ fn receive_and_pass_along_line(
 
     *alive.lock().unwrap() = false;
     println!(
-        "Stream in thread {:?} is closed, marking closed and shutting down...",
+        "Stream in {:?} is closed, marking closed and shutting down...",
         thread::current().id()
     );
 }
@@ -167,17 +170,12 @@ fn relay_response_back(
     alive: Arc<Mutex<bool>>,
 ) {
     println!(
-        "Thread {:?} starting to read response lines",
-        thread::current().id()
+        "{:?} relaying responses to {}",
+        thread::current().id(),
+        stream.peer_addr().unwrap(),
     );
 
     while let Ok(output) = shl_stm_rx.recv() {
-        println!(
-            "Thread {:?} received response line {:?}",
-            thread::current().id(),
-            output
-        );
-
         {
             if !*alive.lock().unwrap() {
                 println!(
@@ -190,7 +188,7 @@ fn relay_response_back(
         match stream.write(output.as_bytes()) {
             Err(e) => {
                 panic!(
-                    "Stream in thread {:?} failed to write with error {}",
+                    "Stream in {:?} failed to write with error {}",
                     thread::current().id(),
                     e
                 );
@@ -200,7 +198,7 @@ fn relay_response_back(
     }
 
     println!(
-        "Thread {:?} receiver closed, shutting down...",
+        "{:?} receiver closed, shutting down...",
         thread::current().id()
     );
 }
