@@ -55,10 +55,12 @@ impl ShellConnection<TcpStream> {
         })
     }
 
-    pub fn send_command(&mut self, cmd: &str) -> Result<CommandResponse> {
-        self.stream.write(cmd.as_bytes())?;
-        self.stream.write(&[b'\n'])?;
+    pub fn send_command(&mut self, cmd: &str) -> Result<usize> {
+        let n_bytes = self.stream.write(cmd.as_bytes())?;
+        Ok(n_bytes + self.stream.write(&[b'\n'])?)
+    }
 
+    pub fn read_response(&self) -> CommandResponse {
         let mut resp_lines = Vec::new();
         let mut lines = BufReader::new(&self.stream).lines();
         while let Some(Ok(line)) = lines.next() {
@@ -70,28 +72,27 @@ impl ShellConnection<TcpStream> {
         }
 
         let response = resp_lines.join("\n").trim().to_owned();
-        Ok(CommandResponse {
+        CommandResponse {
             response,
             // exit_status: 0,
-        })
+        }
     }
 }
 
 pub fn connect_and_echo() {
     let mut connection = ShellConnection::connect("127.0.0.1:8080").unwrap();
-
-    let (sx, rx) = channel();
+    let mut read_connection = connection.try_clone().unwrap();
 
     thread::spawn(move || {
         let mut lines = BufReader::new(stdin()).lines();
 
         while let Some(Ok(line)) = lines.next() {
-            let response = connection.send_command(&line).unwrap();
-            sx.send(response).unwrap();
+            connection.send_command(&line).unwrap();
         }
     });
 
-    while let Ok(resp) = rx.recv() {
+    loop {
+        let resp = read_connection.read_response();
         println!("Response: {}", resp.response);
 
         /*
