@@ -7,6 +7,8 @@ As a client:
 * Connect and receive a struct with connectivity information
 * Send the contents of a file as a series of commands
 
+* Use futures
+
 
 ## Todo - 5/29
 * Design an API

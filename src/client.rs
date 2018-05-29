@@ -1,34 +1,10 @@
-use std::io::{stdin, BufRead, BufReader, Read, Result, Write};
+use std::io::{stdin, stdout, BufRead, BufReader, Read, Result, Write};
 use std::net::TcpStream;
 use std::thread;
 
-pub struct CommandResponse {
-    response: String,
-    // exit_status: usize,
-}
+use command::*;
 
-pub struct CommandResponseLines {
-    lines: Vec<String>,
-}
-
-impl<'a> Iterator for CommandResponseLines {
-    type Item = String;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.lines.pop()
-    }
-}
-
-impl IntoIterator for CommandResponse {
-    type Item = String;
-    type IntoIter = CommandResponseLines;
-
-    fn into_iter(self) -> Self::IntoIter {
-        CommandResponseLines {
-            lines: self.response.split('\n').map(|l| l.to_owned()).collect(),
-        }
-    }
-}
+use serde_json;
 
 pub struct ShellConnection<S: Read + Write> {
     stream: S,
@@ -60,21 +36,10 @@ impl ShellConnection<TcpStream> {
     }
 
     pub fn read_response(&self) -> CommandResponse {
-        let mut resp_lines = Vec::new();
-        let mut lines = BufReader::new(&self.stream).lines();
-        while let Some(Ok(line)) = lines.next() {
-            if line == "END OF MESSAGE" {
-                break;
-            }
+        let mut resp = String::new();
+        BufReader::new(&self.stream).read_line(&mut resp).unwrap();
 
-            resp_lines.push(line);
-        }
-
-        let response = resp_lines.join("\n").trim().to_owned();
-        CommandResponse {
-            response,
-            // exit_status: 0,
-        }
+        serde_json::from_str(&resp).unwrap()
     }
 }
 
@@ -92,12 +57,7 @@ pub fn connect_and_echo() {
 
     loop {
         let resp = read_connection.read_response();
-        println!("Response: {}", resp.response);
 
-        /*
-         * for line in resp {
-         *   println!("Line: {}", line);
-         * }
-         */
+        stdout().write_all(&resp.stdout).unwrap();
     }
 }

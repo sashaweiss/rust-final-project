@@ -5,6 +5,9 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
+use command::*;
+use serde_json;
+
 pub fn spawn_bash_and_listen() {
     let listener = TcpListener::bind("127.0.0.1:8080").unwrap();
 
@@ -23,7 +26,7 @@ pub fn spawn_bash_and_listen() {
 
 fn pipe_stream_to_shell_and_relay_response(
     stm_shl_rx: &Receiver<String>,
-    shl_stm_sxs: &Arc<Mutex<Vec<Sender<String>>>>,
+    shl_stm_sxs: &Arc<Mutex<Vec<Sender<CommandResponse>>>>,
 ) {
     let input = stm_shl_rx.recv().expect("Nothing to receive");
     println!("MAIN: received input: {:?}, writing to shell...", input);
@@ -37,19 +40,25 @@ fn pipe_stream_to_shell_and_relay_response(
 
         match process.output() {
             Ok(output) => {
-                let stdout = ::std::str::from_utf8(&output.stdout).expect("Non-utf8 stdout");
-                let stderr = ::std::str::from_utf8(&output.stderr).expect("Non-utf8 stderr");
+                {
+                    let stdout = ::std::str::from_utf8(&output.stdout).expect("Non-utf8 stdout");
+                    let stderr = ::std::str::from_utf8(&output.stderr).expect("Non-utf8 stderr");
 
-                println!("MAIN: shell returned stdout {:?}, relaying...", stdout);
-                if stderr != "" {
-                    println!(
-                        "MAIN: shell returned stderr {:?}, thought you should know...",
-                        stderr
-                    );
+                    println!("MAIN: shell returned stdout {:?}, relaying...", stdout);
+                    if stderr != "" {
+                        println!(
+                            "MAIN: shell returned stderr {:?}, thought you should know...",
+                            stderr
+                        );
+                    }
                 }
 
+                let response = CommandResponse {
+                    stdout: output.stdout,
+                    stderr: output.stderr,
+                };
                 let mut guard = shl_stm_sxs.lock().expect("Poisoned Vec of outgoing sxs");
-                guard.retain(|shl_stm_sx| shl_stm_sx.send(stdout.to_owned()).is_ok());
+                guard.retain(|shl_stm_sx| shl_stm_sx.send(response.clone()).is_ok());
 
                 println!("MAIN: {} clients relayed to", guard.len());
             }
@@ -63,7 +72,7 @@ fn pipe_stream_to_shell_and_relay_response(
 }
 
 fn handle_incoming_streams(
-    shl_stm_sxs: Arc<Mutex<Vec<Sender<String>>>>,
+    shl_stm_sxs: Arc<Mutex<Vec<Sender<CommandResponse>>>>,
     listener: TcpListener,
     stm_shl_sx: Sender<String>,
 ) {
@@ -85,7 +94,7 @@ fn handle_incoming_streams(
 
 fn handle_new_stream(
     stm_shl_sx: Sender<String>,
-    shl_stm_sxs: Arc<Mutex<Vec<Sender<String>>>>,
+    shl_stm_sxs: Arc<Mutex<Vec<Sender<CommandResponse>>>>,
     stream: TcpStream,
 ) {
     // TODO: lock some item to prevent sending/receiving while threads spin up
@@ -106,7 +115,7 @@ fn handle_new_stream(
     });
 
     // Handle writing to the stream
-    let (shl_stm_sx, shl_stm_rx) = channel::<String>();
+    let (shl_stm_sx, shl_stm_rx) = channel::<CommandResponse>();
     {
         shl_stm_sxs.lock().unwrap().push(shl_stm_sx);
     }
@@ -167,7 +176,7 @@ fn receive_and_pass_along_line(
 
 fn relay_response_back(
     mut stream: TcpStream,
-    shl_stm_rx: Receiver<String>,
+    shl_stm_rx: Receiver<CommandResponse>,
     alive: Arc<Mutex<bool>>,
 ) {
     println!(
@@ -176,7 +185,7 @@ fn relay_response_back(
         stream.peer_addr().unwrap(),
     );
 
-    while let Ok(mut output) = shl_stm_rx.recv() {
+    while let Ok(output) = shl_stm_rx.recv() {
         {
             if !*alive.lock().unwrap() {
                 println!(
@@ -187,8 +196,9 @@ fn relay_response_back(
             }
         }
 
-        output.push_str("\nEND OF MESSAGE\n");
-        match stream.write(output.as_bytes()) {
+        let mut ser = serde_json::to_string(&output).unwrap();
+        ser.push_str("\n");
+        match stream.write(ser.as_bytes()) {
             Err(e) => {
                 panic!(
                     "Stream in {:?} failed to write with error {}",
