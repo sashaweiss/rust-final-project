@@ -1,6 +1,5 @@
 use std::io::{stdin, BufRead, BufReader, Read, Result, Write};
 use std::net::TcpStream;
-use std::sync::mpsc::channel;
 use std::thread;
 
 pub struct CommandResponse {
@@ -81,7 +80,7 @@ impl ShellConnection<TcpStream> {
 
 pub fn connect_and_echo() {
     let mut connection = ShellConnection::connect("127.0.0.1:8080").unwrap();
-    let mut read_connection = connection.try_clone().unwrap();
+    let read_connection = connection.try_clone().unwrap();
 
     thread::spawn(move || {
         let mut lines = BufReader::new(stdin()).lines();
