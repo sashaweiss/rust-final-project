@@ -176,7 +176,7 @@ fn relay_response_back(
         stream.peer_addr().unwrap(),
     );
 
-    while let Ok(output) = shl_stm_rx.recv() {
+    while let Ok(mut output) = shl_stm_rx.recv() {
         {
             if !*alive.lock().unwrap() {
                 println!(
@@ -186,6 +186,8 @@ fn relay_response_back(
                 return;
             }
         }
+
+        output.push_str("\nEND OF MESSAGE\n");
         match stream.write(output.as_bytes()) {
             Err(e) => {
                 panic!(
