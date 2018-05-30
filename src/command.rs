@@ -2,6 +2,7 @@
 pub struct Message {
     pub content: Vec<u8>,
     pub mode: Mode,
+    pub user_name: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

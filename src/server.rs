@@ -83,6 +83,7 @@ fn pipe_stream_to_shell_and_relay_response(
     let response = Message {
         content,
         mode: input.mode,
+        user_name: input.user_name,
     };
 
     let mut guard = shl_stm_sxs.lock().expect("Poisoned Vec of outgoing sxs");

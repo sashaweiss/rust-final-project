@@ -5,6 +5,7 @@ use std::thread;
 use command::*;
 
 use serde_json;
+use rand::random;
 
 pub struct ShellConnection<S: Read + Write> {
     stream: S,
@@ -30,10 +31,11 @@ impl ShellConnection<TcpStream> {
         })
     }
 
-    pub fn send_input(&mut self, content: &str, mode: &Mode) -> Result<usize> {
+    pub fn send_input(&mut self, content: &str, mode: &Mode, user_name: &str) -> Result<usize> {
         let input = Message {
             content: content.to_owned().into_bytes(),
             mode: mode.clone(),
+            user_name: user_name.to_owned()
         };
 
         let mut sendable = serde_json::to_vec(&input).unwrap();
@@ -51,6 +53,14 @@ impl ShellConnection<TcpStream> {
 }
 
 pub fn connect_and_echo() {
+
+    let mut args = ::std::env::args(); //TODO: make this safer
+    args.next();
+    let user_name = match args.next(){
+        Some(n) => n,
+        None => (0..4).map(|_| random::<char>()).collect()
+    };
+
     let mut connection = ShellConnection::connect("127.0.0.1:8080").unwrap();
     let read_connection = connection.try_clone().unwrap();
 
