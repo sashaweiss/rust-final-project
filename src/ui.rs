@@ -93,6 +93,12 @@ pub fn render(connection: &mut ShellConnection<TcpStream>, user_name: &str) {
                             "CMD" => {
                                 app.input_mode = Mode::Cmd;
                             }
+                            "CLEAR" => {
+                                match app.input_mode {
+                                    Mode::Cmd => app.commands.clear(),
+                                    Mode::Chat => app.messages.clear(),
+                                };
+                            }
                             _ => {
                                 connection.send_input(&message, &app.input_mode, &user_name).unwrap();
                             }
