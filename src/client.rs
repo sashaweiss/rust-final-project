@@ -83,7 +83,7 @@ pub fn connect_and_echo() {
                     println!("Switched to Cmd mode");
                 }
                 _ => {
-                    connection.send_input(&line, &mode).unwrap();
+                    connection.send_input(&line, &mode, &user_name).unwrap();
                 }
             }
         }
