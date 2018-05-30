@@ -1,6 +1,5 @@
-use std::io::{stdin, stdout, BufRead, BufReader, Read, Result, Write};
+use std::io::{BufRead, BufReader, Read, Result, Write};
 use std::net::TcpStream;
-use std::thread;
 
 use command::*;
 use ui;
