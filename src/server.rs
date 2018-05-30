@@ -1,6 +1,6 @@
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
-use std::process::{Command, Output};
+use std::process::Command;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -24,7 +24,7 @@ pub fn spawn_bash_and_listen() {
     }
 }
 
-fn run_command(content: &str) -> Result<Output, String> {
+fn run_command(content: &str) -> Result<String, String> {
     let mut words = content.split_whitespace();
     if let Some(cmd) = words.next() {
         let mut process = Command::new(cmd);
@@ -34,54 +34,60 @@ fn run_command(content: &str) -> Result<Output, String> {
 
         match process.output() {
             Ok(output) => {
-                {
-                    let stdout = ::std::str::from_utf8(&output.stdout).expect("Non-utf8 stdout");
-                    let stderr = ::std::str::from_utf8(&output.stderr).expect("Non-utf8 stderr");
+                let stdout = ::std::str::from_utf8(&output.stdout).expect("Non-utf8 stdout");
+                let stderr = ::std::str::from_utf8(&output.stderr).expect("Non-utf8 stderr");
 
-                    println!("MAIN: shell returned stdout {:?}, relaying...", stdout);
-                    if stderr != "" {
-                        println!(
-                            "MAIN: shell returned stderr {:?}, thought you should know...",
-                            stderr
-                        );
-                    }
+                println!("MAIN: shell returned stdout {:?}, relaying...", stdout);
+                if stderr != "" {
+                    println!(
+                        "MAIN: shell returned stderr {:?}, thought you should know...",
+                        stderr
+                    );
                 }
 
-                Ok(output)
+                Ok(stdout.to_owned()) // TODO: merge stdout and stderr
             }
-            Err(_) => Err(format!("MAIN: bad input: {:?}", content)),
+            Err(_) => {
+                println!("Bad input: {:?}", content);
+                Err(format!("Bad input: {:?}", content))
+            }
         }
     } else {
+        println!("Empty input");
         Err("Empty input".to_owned())
     }
 }
 
 fn pipe_stream_to_shell_and_relay_response(
     stm_shl_rx: &Receiver<Message>,
-    shl_stm_sxs: &Arc<Mutex<Vec<Sender<Message>>>>,
+    shl_stm_sxs: &Arc<Mutex<Vec<Sender<Response>>>>,
 ) {
     let input = stm_shl_rx.recv().expect("Nothing to receive");
 
-    let content = match input.mode {
+    let response = match input.mode {
         Mode::Chat => {
-            let chat = input.content;
-            println!("MAIN: received chat: {:?}", chat);
-            chat
+            println!(
+                "MAIN: received chat from {:?}: {:?}",
+                input.user_name, input.content
+            );
+            input.content.clone()
         }
         Mode::Cmd => {
-            println!("MAIN: received command: {:?}", input.content);
+            println!(
+                "MAIN: received command from {:?}: {:?}",
+                input.user_name, input.content
+            );
 
             match run_command(&input.content) {
-                Ok(resp) => ::std::str::from_utf8(&resp.stdout).unwrap().to_owned(), // TODO: merge stdout and stderr
+                Ok(resp) => resp,
                 Err(e) => format!("Error running command: {}", e),
             }
         }
     };
 
-    let response = Message {
-        content,
-        mode: input.mode,
-        user_name: input.user_name,
+    let response = Response {
+        og_msg: input,
+        response,
     };
 
     let mut guard = shl_stm_sxs.lock().expect("Poisoned Vec of outgoing sxs");
@@ -91,7 +97,7 @@ fn pipe_stream_to_shell_and_relay_response(
 }
 
 fn handle_incoming_streams(
-    shl_stm_sxs: Arc<Mutex<Vec<Sender<Message>>>>,
+    shl_stm_sxs: Arc<Mutex<Vec<Sender<Response>>>>,
     listener: TcpListener,
     stm_shl_sx: Sender<Message>,
 ) {
@@ -113,7 +119,7 @@ fn handle_incoming_streams(
 
 fn handle_new_stream(
     stm_shl_sx: Sender<Message>,
-    shl_stm_sxs: Arc<Mutex<Vec<Sender<Message>>>>,
+    shl_stm_sxs: Arc<Mutex<Vec<Sender<Response>>>>,
     stream: TcpStream,
 ) {
     // TODO: lock some item to prevent sending/receiving while threads spin up
@@ -134,7 +140,7 @@ fn handle_new_stream(
     });
 
     // Handle writing to the stream
-    let (shl_stm_sx, shl_stm_rx) = channel::<Message>();
+    let (shl_stm_sx, shl_stm_rx) = channel::<Response>();
     {
         shl_stm_sxs.lock().unwrap().push(shl_stm_sx);
     }
@@ -195,7 +201,7 @@ fn receive_and_pass_along_line(
 
 fn relay_response_back(
     mut stream: TcpStream,
-    shl_stm_rx: Receiver<Message>,
+    shl_stm_rx: Receiver<Response>,
     alive: Arc<Mutex<bool>>,
 ) {
     println!(

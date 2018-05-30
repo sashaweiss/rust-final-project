@@ -11,7 +11,7 @@ use tui::Terminal;
 use tui::backend::MouseBackend;
 use tui::layout::{Direction, Group, Rect, Size};
 use tui::style::{Color, Style};
-use tui::widgets::{Block, Borders, Item, List, Paragraph, Widget};
+use tui::widgets::{Block, Borders, Paragraph, Widget};
 
 use chan;
 
@@ -23,6 +23,7 @@ struct App {
     input: String,
     input_mode: Mode,
     messages: Vec<(String, String)>,
+    commands: Vec<(String, String, String)>,
 }
 
 impl App {
@@ -32,6 +33,7 @@ impl App {
             input: String::new(),
             input_mode: Mode::Chat,
             messages: Vec::new(),
+            commands: Vec::new(),
         }
     }
 }
@@ -44,19 +46,17 @@ pub fn render(connection: &mut ShellConnection<TcpStream>, user_name: &str) {
         for c in stdin.keys() {
             let evt = c.unwrap();
             input_tx.send(evt);
-            if evt == event::Key::Char('q') {
-                break;
-            }
         }
     });
 
     // Connection reading thread
-    let (message_tx, message_rx) = chan::sync(0);
+    let (response_tx, response_rx) = chan::sync(0);
     let read_connection = connection.try_clone().unwrap();
     thread::spawn(move || loop {
-        let resp = read_connection.read_response();
-
-        message_tx.send(resp);
+        match read_connection.read_response() {
+            Ok(resp) => response_tx.send(resp),
+            Err(_) => break,
+        };
     });
 
     // Terminal drawing thread
@@ -81,7 +81,7 @@ pub fn render(connection: &mut ShellConnection<TcpStream>, user_name: &str) {
         chan_select! {
             input_rx.recv() -> key => {
                 match key.unwrap() {
-                    event::Key::Char('q') => {
+                    event::Key::Ctrl('c') | event::Key::Esc => {
                         break;
                     }
                     event::Key::Char('\n') => {
@@ -107,9 +107,19 @@ pub fn render(connection: &mut ShellConnection<TcpStream>, user_name: &str) {
                     _ => {}
                 }
             },
-            message_rx.recv() -> message => {
-                let message = message.unwrap();
-                app.messages.push((message.user_name, message.content));
+            response_rx.recv() -> response => {
+                if let Some(response) = response {
+                    match response.og_msg.mode {
+                        Mode::Chat => {
+                            app.messages.push((response.og_msg.user_name, response.response));
+                        }
+                        Mode::Cmd => {
+                            app.commands.push((response.og_msg.user_name, response.og_msg.content, response.response));
+                        }
+                    };
+                } else {
+                    break;
+                }
             },
         }
 
@@ -117,7 +127,6 @@ pub fn render(connection: &mut ShellConnection<TcpStream>, user_name: &str) {
     }
 
     terminal.show_cursor().unwrap();
-    terminal.clear().unwrap();
 }
 
 fn draw(t: &mut Terminal<MouseBackend>, app: &App) {
@@ -138,12 +147,46 @@ fn draw(t: &mut Terminal<MouseBackend>, app: &App) {
                 )
                 .text(&app.input)
                 .render(t, &chunks[0]);
-            List::new(
-                app.messages
-                    .iter()
-                    .map(|(u, m)| Item::Data(format!("{}: {}", u, m))),
-            ).block(Block::default().borders(Borders::ALL).title("Messages"))
-                .render(t, &chunks[1]);
+
+            Group::default()
+                .direction(Direction::Horizontal)
+                .margin(0)
+                .sizes(&[Size::Percent(50), Size::Percent(50)])
+                .render(t, &chunks[1], |t, chunks| {
+                    // Use Paragraphs so we can get text wrapping
+                    let messages: String = app.messages.iter().rev().fold(
+                        "".to_owned(),
+                        |mut acc, (u, m)| {
+                            acc.push_str(&format!("{}: {}\n", u, m));
+                            acc
+                        },
+                    );
+                    Paragraph::default()
+                        .block(Block::default().borders(Borders::ALL).title("Messages"))
+                        .wrap(true)
+                        .text(&messages)
+                        .render(t, &chunks[0]);
+
+                    let commands: String = app.commands.iter().rev().enumerate().fold(
+                        "".to_owned(),
+                        |mut acc, (i, (u, c, m))| {
+                            acc.push_str(&format!(
+                                "{}: {} >> {}\n{}{}\n",
+                                i,
+                                u,
+                                c,
+                                m,
+                                if m.ends_with("\n") { "" } else { "\n" }
+                            ));
+                            acc
+                        },
+                    );
+                    Paragraph::default()
+                        .block(Block::default().borders(Borders::ALL).title("Commands"))
+                        .wrap(true)
+                        .text(&commands)
+                        .render(t, &chunks[1]);
+                });
         });
 
     t.draw().unwrap();

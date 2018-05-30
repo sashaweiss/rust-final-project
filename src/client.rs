@@ -1,4 +1,4 @@
-use std::io::{BufRead, BufReader, Read, Result, Write};
+use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
 
 use command::*;
@@ -13,7 +13,7 @@ pub struct ShellConnection<S: Read + Write> {
 }
 
 impl ShellConnection<TcpStream> {
-    pub fn connect(url: &str) -> Result<Self> {
+    pub fn connect(url: &str) -> io::Result<Self> {
         let stream = TcpStream::connect(url)?;
 
         Ok(Self {
@@ -22,7 +22,7 @@ impl ShellConnection<TcpStream> {
         })
     }
 
-    pub fn try_clone(&self) -> Result<Self> {
+    pub fn try_clone(&self) -> io::Result<Self> {
         let stream_clone = self.stream.try_clone()?;
 
         Ok(Self {
@@ -31,7 +31,7 @@ impl ShellConnection<TcpStream> {
         })
     }
 
-    pub fn send_input(&mut self, content: &str, mode: &Mode, user_name: &str) -> Result<usize> {
+    pub fn send_input(&mut self, content: &str, mode: &Mode, user_name: &str) -> io::Result<usize> {
         let input = Message {
             content: content.to_owned(),
             mode: mode.clone(),
@@ -44,11 +44,13 @@ impl ShellConnection<TcpStream> {
         self.stream.write(&sendable)
     }
 
-    pub fn read_response(&self) -> Message {
+    pub fn read_response(&self) -> Result<Response, String> {
         let mut resp = String::new();
-        BufReader::new(&self.stream).read_line(&mut resp).unwrap();
+        BufReader::new(&self.stream)
+            .read_line(&mut resp)
+            .map_err(|e| format!("Error reading: {:?}", e))?;
 
-        serde_json::from_str(&resp).unwrap()
+        serde_json::from_str(&resp).map_err(|e| format!("Error reading: {:?}", e))
     }
 }
 

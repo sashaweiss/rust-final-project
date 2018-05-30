@@ -6,6 +6,12 @@ pub struct Message {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Response {
+    pub og_msg: Message,
+    pub response: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum Mode {
     Chat,
     Cmd,
