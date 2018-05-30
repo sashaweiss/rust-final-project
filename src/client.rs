@@ -32,8 +32,7 @@ impl ShellConnection<TcpStream> {
     }
 
     pub fn send_input(&mut self, content: &str, mode: &Mode) -> Result<usize> {
-
-        let input = UserInput {
+        let input = Message {
             content: content.to_owned().into_bytes(),
             mode: mode.clone(),
         };
@@ -41,11 +40,10 @@ impl ShellConnection<TcpStream> {
         let mut sendable = serde_json::to_vec(&input).unwrap();
         sendable.push(b'\n');
 
-        let n_bytes = self.stream.write(&sendable)?;
-        Ok(n_bytes + self.stream.write(&[b'\n'])?)
+        self.stream.write(&sendable)
     }
 
-    pub fn read_response(&self) -> CommandResponse {
+    pub fn read_response(&self) -> Message {
         let mut resp = String::new();
         BufReader::new(&self.stream).read_line(&mut resp).unwrap();
 
@@ -58,34 +56,28 @@ pub fn connect_and_echo() {
     let read_connection = connection.try_clone().unwrap();
 
     thread::spawn(move || {
-
         let mut mode = Mode::Chat;
 
         loop {
-
             let mut rl = rustyline::Editor::<()>::new();
             let read_line = rl.readline(&mode.prompt());
 
             match read_line {
-                Ok(line) => {
-                    match line.as_ref() {
-                        "EXIT" => {
-                            println!("Exiting shared terminal");
-                            break;
-                        },
-                        "CHAT" => {
-                            mode = Mode::Chat;
-                            println!("Switched to Chat mode");
-
-                        },
-                        "CMD" => {
-                            mode = Mode::Cmd;
-                            println!("Switched to Cmd mode");
-
-                        }
-                        _ => {
-                            connection.send_input(&line, &mode).unwrap();
-                        }
+                Ok(line) => match line.as_ref() {
+                    "EXIT" => {
+                        println!("Exiting shared terminal");
+                        break;
+                    }
+                    "CHAT" => {
+                        mode = Mode::Chat;
+                        println!("Switched to Chat mode");
+                    }
+                    "CMD" => {
+                        mode = Mode::Cmd;
+                        println!("Switched to Cmd mode");
+                    }
+                    _ => {
+                        connection.send_input(&line, &mode).unwrap();
                     }
                 },
                 Err(err) => {
@@ -93,15 +85,12 @@ pub fn connect_and_echo() {
                     break;
                 }
             }
-
         }
-
     });
 
     loop {
         let resp = read_connection.read_response();
 
-        stdout().write_all(&resp.stdout).unwrap();
+        stdout().write_all(&resp.content).unwrap();
     }
 }
-

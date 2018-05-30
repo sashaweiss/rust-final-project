@@ -9,6 +9,8 @@ As a client:
 
 * Use futures
 
+* Split stream instead of cloning
+
 
 ## Todo - 5/29
 * Design an API

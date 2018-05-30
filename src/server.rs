@@ -1,6 +1,6 @@
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
-use std::process::Command;
+use std::process::{Command, Output};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -11,7 +11,7 @@ use serde_json;
 pub fn spawn_bash_and_listen() {
     let listener = TcpListener::bind("127.0.0.1:8080").unwrap();
 
-    let (stm_shl_sx, stm_shl_rx) = channel::<String>();
+    let (stm_shl_sx, stm_shl_rx) = channel::<Message>();
     let shl_stm_sxs = Arc::new(Mutex::new(Vec::new()));
 
     let sxs = shl_stm_sxs.clone();
@@ -24,14 +24,8 @@ pub fn spawn_bash_and_listen() {
     }
 }
 
-fn pipe_stream_to_shell_and_relay_response(
-    stm_shl_rx: &Receiver<String>,
-    shl_stm_sxs: &Arc<Mutex<Vec<Sender<CommandResponse>>>>,
-) {
-    let input = stm_shl_rx.recv().expect("Nothing to receive");
-    println!("MAIN: received input: {:?}, writing to shell...", input);
-
-    let mut words = input.split_whitespace();
+fn run_command(content: &str) -> Result<Output, String> {
+    let mut words = content.split_whitespace();
     if let Some(cmd) = words.next() {
         let mut process = Command::new(cmd);
         while let Some(arg) = words.next() {
@@ -53,28 +47,54 @@ fn pipe_stream_to_shell_and_relay_response(
                     }
                 }
 
-                let response = CommandResponse {
-                    stdout: output.stdout,
-                    stderr: output.stderr,
-                };
-                let mut guard = shl_stm_sxs.lock().expect("Poisoned Vec of outgoing sxs");
-                guard.retain(|shl_stm_sx| shl_stm_sx.send(response.clone()).is_ok());
-
-                println!("MAIN: {} clients relayed to", guard.len());
+                Ok(output)
             }
-            Err(_) => {
-                println!("MAIN: bad input: {:?}", input);
-            }
+            Err(_) => Err(format!("MAIN: bad input: {:?}", content)),
         }
     } else {
-        println!("MAIN: received empty input");
+        Err("Empty input".to_owned())
     }
 }
 
+fn pipe_stream_to_shell_and_relay_response(
+    stm_shl_rx: &Receiver<Message>,
+    shl_stm_sxs: &Arc<Mutex<Vec<Sender<Message>>>>,
+) {
+    let input = stm_shl_rx.recv().expect("Nothing to receive");
+
+    let content = match input.mode {
+        Mode::Chat => {
+            let chat = input.content;
+            println!("MAIN: received chat: {:?}", chat);
+            chat
+        }
+        Mode::Cmd => {
+            let cmd_string = ::std::str::from_utf8(&input.content).unwrap();
+
+            println!("MAIN: received command: {:?}", cmd_string);
+
+            match run_command(&cmd_string) {
+                Ok(resp) => resp.stdout, // TODO: merge stdout and stderr
+                Err(e) => format!("Error running command: {}", e).into_bytes(),
+            }
+        }
+    };
+
+    let response = Message {
+        content,
+        mode: input.mode,
+    };
+
+    let mut guard = shl_stm_sxs.lock().expect("Poisoned Vec of outgoing sxs");
+    guard.retain(|shl_stm_sx| shl_stm_sx.send(response.clone()).is_ok());
+
+    println!("MAIN: {} clients relayed to", guard.len());
+}
+
 fn handle_incoming_streams(
-    shl_stm_sxs: Arc<Mutex<Vec<Sender<CommandResponse>>>>,
+    shl_stm_sxs: Arc<Mutex<Vec<Sender<Message>>>>,
     listener: TcpListener,
-    stm_shl_sx: Sender<String>,
+    stm_shl_sx: Sender<Message>,
 ) {
     for stream in listener.incoming() {
         match stream {
@@ -93,8 +113,8 @@ fn handle_incoming_streams(
 }
 
 fn handle_new_stream(
-    stm_shl_sx: Sender<String>,
-    shl_stm_sxs: Arc<Mutex<Vec<Sender<CommandResponse>>>>,
+    stm_shl_sx: Sender<Message>,
+    shl_stm_sxs: Arc<Mutex<Vec<Sender<Message>>>>,
     stream: TcpStream,
 ) {
     // TODO: lock some item to prevent sending/receiving while threads spin up
@@ -115,7 +135,7 @@ fn handle_new_stream(
     });
 
     // Handle writing to the stream
-    let (shl_stm_sx, shl_stm_rx) = channel::<CommandResponse>();
+    let (shl_stm_sx, shl_stm_rx) = channel::<Message>();
     {
         shl_stm_sxs.lock().unwrap().push(shl_stm_sx);
     }
@@ -141,7 +161,7 @@ fn handle_new_stream(
 
 fn receive_and_pass_along_line(
     stream: TcpStream,
-    stm_shl: Sender<String>,
+    stm_shl: Sender<Message>,
     alive: Arc<Mutex<bool>>,
 ) {
     println!(
@@ -154,8 +174,8 @@ fn receive_and_pass_along_line(
     while let Some(maybe_line) = lines.next() {
         match maybe_line {
             Ok(mut line) => {
-                line.push('\n');
-                stm_shl.send(line).unwrap();
+                let user_input = serde_json::from_str::<Message>(&line).unwrap();
+                stm_shl.send(user_input).unwrap();
             }
             Err(e) => {
                 panic!(
@@ -176,7 +196,7 @@ fn receive_and_pass_along_line(
 
 fn relay_response_back(
     mut stream: TcpStream,
-    shl_stm_rx: Receiver<CommandResponse>,
+    shl_stm_rx: Receiver<Message>,
     alive: Arc<Mutex<bool>>,
 ) {
     println!(
