@@ -15,15 +15,19 @@ use tui::widgets::{Block, Borders, Paragraph, Widget};
 
 use chan;
 
+use chrono::prelude::*;
+
 use client::ShellConnection;
 use command::*;
+
+const TIME_FORMAT: &'static str = "%H:%M:%S";
 
 struct App {
     size: Rect,
     input: String,
     input_mode: Mode,
-    messages: Vec<(String, String)>,
-    commands: Vec<(String, String, String)>,
+    messages: Vec<(DateTime<Local>, String, String)>,
+    commands: Vec<(DateTime<Local>, String, String, String)>,
 }
 
 impl App {
@@ -117,10 +121,10 @@ pub fn render(connection: &mut ShellConnection<TcpStream>, user_name: &str) {
                 if let Some(response) = response {
                     match response.og_msg.mode {
                         Mode::Chat => {
-                            app.messages.push((response.og_msg.user_name, response.response));
+                            app.messages.push((Local::now(), response.og_msg.user_name, response.response));
                         }
                         Mode::Cmd => {
-                            app.commands.push((response.og_msg.user_name, response.og_msg.content, response.response));
+                            app.commands.push((Local::now(), response.og_msg.user_name, response.og_msg.content, response.response));
                         }
                     };
                 } else {
@@ -160,10 +164,15 @@ fn draw(t: &mut Terminal<MouseBackend>, app: &App) {
                 .sizes(&[Size::Percent(50), Size::Percent(50)])
                 .render(t, &chunks[1], |t, chunks| {
                     // Use Paragraphs so we can get text wrapping
-                    let messages: String = app.messages.iter().rev().enumerate().fold(
+                    let messages: String = app.messages.iter().rev().fold(
                         "".to_owned(),
-                        |mut acc, (i, (u, m))| {
-                            acc.push_str(&format!("{}: {}: {}\n", i, u, m));
+                        |mut acc, (t, u, m)| {
+                            acc.push_str(&format!(
+                                "{}: {}: {}\n",
+                                t.format(TIME_FORMAT).to_string(),
+                                u,
+                                m
+                            ));
                             acc
                         },
                     );
@@ -173,12 +182,12 @@ fn draw(t: &mut Terminal<MouseBackend>, app: &App) {
                         .text(&messages)
                         .render(t, &chunks[0]);
 
-                    let commands: String = app.commands.iter().rev().enumerate().fold(
+                    let commands: String = app.commands.iter().rev().fold(
                         "".to_owned(),
-                        |mut acc, (i, (u, c, m))| {
+                        |mut acc, (t, u, c, m)| {
                             acc.push_str(&format!(
                                 "{}: {} >> {}\n{}{}\n",
-                                i,
+                                t.format(TIME_FORMAT).to_string(),
                                 u,
                                 c,
                                 m,
