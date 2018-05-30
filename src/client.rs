@@ -1,7 +1,6 @@
-use std::io::{stdout, BufRead, BufReader, Read, Result, Write};
+use std::io::{stdin, stdout, BufRead, BufReader, Read, Result, Write};
 use std::net::TcpStream;
 use std::thread;
-extern crate rustyline;
 
 use command::*;
 
@@ -58,12 +57,9 @@ pub fn connect_and_echo() {
     thread::spawn(move || {
         let mut mode = Mode::Chat;
 
-        loop {
-            let mut rl = rustyline::Editor::<()>::new();
-            let read_line = rl.readline(&mode.prompt());
-
-            match read_line {
-                Ok(line) => match line.as_ref() {
+        let mut lines = BufReader::new(stdin()).lines();
+        while let Some(Ok(line)) = lines.next(){
+            match line.as_ref() {
                     "EXIT" => {
                         println!("Exiting shared terminal");
                         break;
@@ -79,18 +75,16 @@ pub fn connect_and_echo() {
                     _ => {
                         connection.send_input(&line, &mode).unwrap();
                     }
-                },
-                Err(err) => {
-                    println!("Error: {:?}, exiting shared terminal", err);
-                    break;
                 }
-            }
         }
+
     });
 
     loop {
-        let resp = read_connection.read_response();
-
+        let mut resp = read_connection.read_response();
+        resp.content.push(b'\n');
         stdout().write_all(&resp.content).unwrap();
+        stdout().flush().unwrap();
+
     }
 }
