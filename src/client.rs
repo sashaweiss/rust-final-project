@@ -58,26 +58,25 @@ pub fn connect_and_echo() {
         let mut mode = Mode::Chat;
 
         let mut lines = BufReader::new(stdin()).lines();
-        while let Some(Ok(line)) = lines.next(){
+        while let Some(Ok(line)) = lines.next() {
             match line.as_ref() {
-                    "EXIT" => {
-                        println!("Exiting shared terminal");
-                        break;
-                    }
-                    "CHAT" => {
-                        mode = Mode::Chat;
-                        println!("Switched to Chat mode");
-                    }
-                    "CMD" => {
-                        mode = Mode::Cmd;
-                        println!("Switched to Cmd mode");
-                    }
-                    _ => {
-                        connection.send_input(&line, &mode).unwrap();
-                    }
+                "EXIT" => {
+                    println!("Exiting shared terminal");
+                    break;
                 }
+                "CHAT" => {
+                    mode = Mode::Chat;
+                    println!("Switched to Chat mode");
+                }
+                "CMD" => {
+                    mode = Mode::Cmd;
+                    println!("Switched to Cmd mode");
+                }
+                _ => {
+                    connection.send_input(&line, &mode).unwrap();
+                }
+            }
         }
-
     });
 
     loop {
@@ -85,6 +84,5 @@ pub fn connect_and_echo() {
         resp.content.push(b'\n');
         stdout().write_all(&resp.content).unwrap();
         stdout().flush().unwrap();
-
     }
 }
