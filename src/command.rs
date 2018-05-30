@@ -19,8 +19,8 @@ pub enum Mode {
 impl Mode {
     pub fn prompt(&self) -> String {
         match self {
-            &Mode::Chat => "CHAT >>".to_string(),
-            &Mode::Cmd => ">>".to_string(),
+            &Mode::Chat => "CHAT >> ".to_string(),
+            &Mode::Cmd => ">> ".to_string(),
         }
     }
 }
