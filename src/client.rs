@@ -3,9 +3,10 @@ use std::net::TcpStream;
 use std::thread;
 
 use command::*;
+use ui;
 
-use serde_json;
 use rand::random;
+use serde_json;
 
 pub struct ShellConnection<S: Read + Write> {
     stream: S,
@@ -35,7 +36,7 @@ impl ShellConnection<TcpStream> {
         let input = Message {
             content: content.to_owned().into_bytes(),
             mode: mode.clone(),
-            user_name: user_name.to_owned()
+            user_name: user_name.to_owned(),
         };
 
         let mut sendable = serde_json::to_vec(&input).unwrap();
@@ -53,46 +54,14 @@ impl ShellConnection<TcpStream> {
 }
 
 pub fn connect_and_echo() {
-
     let mut args = ::std::env::args(); //TODO: make this safer
     args.next();
-    let user_name = match args.next(){
+    let user_name = match args.next() {
         Some(n) => n,
-        None => (0..4).map(|_| random::<char>()).collect()
+        None => (0..4).map(|_| random::<char>()).collect(),
     };
 
     let mut connection = ShellConnection::connect("127.0.0.1:8080").unwrap();
-    let read_connection = connection.try_clone().unwrap();
 
-    thread::spawn(move || {
-        let mut mode = Mode::Chat;
-
-        let mut lines = BufReader::new(stdin()).lines();
-        while let Some(Ok(line)) = lines.next() {
-            match line.as_ref() {
-                "EXIT" => {
-                    println!("Exiting shared terminal");
-                    break;
-                }
-                "CHAT" => {
-                    mode = Mode::Chat;
-                    println!("Switched to Chat mode");
-                }
-                "CMD" => {
-                    mode = Mode::Cmd;
-                    println!("Switched to Cmd mode");
-                }
-                _ => {
-                    connection.send_input(&line, &mode, &user_name).unwrap();
-                }
-            }
-        }
-    });
-
-    loop {
-        let mut resp = read_connection.read_response();
-        resp.content.push(b'\n');
-        stdout().write_all(&resp.content).unwrap();
-        stdout().flush().unwrap();
-    }
+    ui::render(&mut connection, &user_name);
 }
