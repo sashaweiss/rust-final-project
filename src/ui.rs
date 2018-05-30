@@ -81,10 +81,10 @@ pub fn render(connection: &mut ShellConnection<TcpStream>, user_name: &str) {
     thread::spawn(move || loop {
         let mut resp = read_connection.read_response();
 
-        messages_thread.lock().expect("Poisoned messages").push((
-            resp.user_name,
-            ::std::str::from_utf8(&resp.content).unwrap().to_owned(),
-        ));
+        messages_thread
+            .lock()
+            .expect("Poisoned messages")
+            .push((resp.user_name, resp.content));
     });
 
     // First draw call

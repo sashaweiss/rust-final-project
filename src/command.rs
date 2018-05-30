@@ -1,6 +1,6 @@
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Message {
-    pub content: Vec<u8>,
+    pub content: String,
     pub mode: Mode,
     pub user_name: String,
 }

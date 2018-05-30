@@ -34,7 +34,7 @@ impl ShellConnection<TcpStream> {
 
     pub fn send_input(&mut self, content: &str, mode: &Mode, user_name: &str) -> Result<usize> {
         let input = Message {
-            content: content.to_owned().into_bytes(),
+            content: content.to_owned(),
             mode: mode.clone(),
             user_name: user_name.to_owned(),
         };

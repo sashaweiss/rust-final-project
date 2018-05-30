@@ -69,13 +69,11 @@ fn pipe_stream_to_shell_and_relay_response(
             chat
         }
         Mode::Cmd => {
-            let cmd_string = ::std::str::from_utf8(&input.content).unwrap();
+            println!("MAIN: received command: {:?}", input.content);
 
-            println!("MAIN: received command: {:?}", cmd_string);
-
-            match run_command(&cmd_string) {
-                Ok(resp) => resp.stdout, // TODO: merge stdout and stderr
-                Err(e) => format!("Error running command: {}", e).into_bytes(),
+            match run_command(&input.content) {
+                Ok(resp) => ::std::str::from_utf8(&resp.stdout).unwrap().to_owned(), // TODO: merge stdout and stderr
+                Err(e) => format!("Error running command: {}", e),
             }
         }
     };
