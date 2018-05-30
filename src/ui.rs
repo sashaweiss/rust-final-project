@@ -160,10 +160,10 @@ fn draw(t: &mut Terminal<MouseBackend>, app: &App) {
                 .sizes(&[Size::Percent(50), Size::Percent(50)])
                 .render(t, &chunks[1], |t, chunks| {
                     // Use Paragraphs so we can get text wrapping
-                    let messages: String = app.messages.iter().rev().fold(
+                    let messages: String = app.messages.iter().rev().enumerate().fold(
                         "".to_owned(),
-                        |mut acc, (u, m)| {
-                            acc.push_str(&format!("{}: {}\n", u, m));
+                        |mut acc, (i, (u, m))| {
+                            acc.push_str(&format!("{}: {}: {}\n", i, u, m));
                             acc
                         },
                     );
