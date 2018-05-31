@@ -1,7 +1,7 @@
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
 
-use command::*;
+use messages::*;
 use ui;
 
 use rand::random;
@@ -55,7 +55,7 @@ impl ShellConnection<TcpStream> {
 }
 
 pub fn connect_and_echo() {
-    let mut args = ::std::env::args(); //TODO: make this safer
+    let mut args = ::std::env::args(); // TODO: make this safer
     args.next();
     let user_name = match args.next() {
         Some(n) => n,

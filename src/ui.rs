@@ -18,7 +18,7 @@ use chan;
 use chrono::prelude::*;
 
 use client::ShellConnection;
-use command::*;
+use messages::*;
 
 const TIME_FORMAT: &'static str = "%H:%M:%S";
 

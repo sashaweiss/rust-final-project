@@ -5,7 +5,8 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-use command::*;
+use messages::*;
+
 use serde_json;
 
 pub fn spawn_bash_and_listen() {

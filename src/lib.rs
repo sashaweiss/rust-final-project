@@ -10,6 +10,6 @@ extern crate termion;
 extern crate tui;
 
 pub mod client;
-pub mod command;
+pub mod messages;
 pub mod server;
 pub mod ui;
