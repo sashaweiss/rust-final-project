@@ -1,5 +1,4 @@
 use std::io::{BufRead, BufReader, Write};
-use std::net::{TcpListener, TcpStream};
 use std::process::Command;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
@@ -9,6 +8,52 @@ use messages::*;
 
 use serde_json;
 
+use tokio;
+use tokio::net::TcpListener;
+use tokio::prelude::stream::Stream;
+use tokio::prelude::{future, AsyncRead, Future, IntoFuture};
+
+pub fn spawn_bash_and_listen_future() {
+    let addr = "127.0.0.1:8080".parse().unwrap();
+    let listener = TcpListener::bind(&addr).expect("Failed to bind listener");
+
+    let (stm_shl_sx, stm_shl_rx) = channel::<Message>();
+    let shl_stm_sxs: Vec<Sender<Message>> = Vec::new();
+
+    let streams_handler = listener
+        .incoming()
+        .map_err(|e| eprintln!("Incoming failed: {:?}", e))
+        .for_each(move |sock| {
+            let (reader, writer) = sock.split();
+
+            println!("Received connection..."); // TODO: add more info to log
+
+            let stm_shl_sx = stm_shl_sx.clone();
+            let read = tokio::io::lines(BufReader::new(reader))
+                .map_err(|e| format!("Failed to read line: {:?}", e))
+                .for_each(move |line| {
+                    let user_input = serde_json::from_str::<Message>(&line).unwrap();
+
+                    future::result(
+                        stm_shl_sx
+                            .send(user_input)
+                            .map_err(|e| format!("Failed to send: {:?}", e)),
+                    )
+                });
+
+            let write = future::failed::<(), String>("unimplemented".to_owned());
+
+            tokio::spawn(
+                read.join(write)
+                    .map_err(|e| eprintln!("Stream handler errored: {:?}", e))
+                    .map(|_| println!("Stream handler succeeded")),
+            )
+        });
+
+    tokio::run(streams_handler);
+}
+
+/*
 pub fn spawn_bash_and_listen() {
     let listener = TcpListener::bind("127.0.0.1:8080").unwrap();
 
@@ -242,3 +287,4 @@ fn relay_response_back(
         thread::current().id()
     );
 }
+*/

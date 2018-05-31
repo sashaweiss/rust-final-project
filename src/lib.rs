@@ -7,6 +7,7 @@ extern crate rand;
 extern crate serde;
 extern crate serde_json;
 extern crate termion;
+extern crate tokio;
 extern crate tui;
 
 pub mod client;
