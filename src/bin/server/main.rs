@@ -1,3 +1,5 @@
 extern crate final_project;
 
-fn main() {}
+fn main() {
+    ::final_project::server::spawn_bash_and_listen_future();
+}

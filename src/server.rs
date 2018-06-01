@@ -1,37 +1,36 @@
-use std::io::{BufRead, BufReader, Write};
-use std::process::Command;
-use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::mpsc::{channel, Sender};
 use std::sync::{Arc, Mutex};
-use std::thread;
-
-use messages::*;
 
 use serde_json;
-
 use tokio;
 use tokio::net::TcpListener;
-use tokio::prelude::stream::Stream;
-use tokio::prelude::{future, AsyncRead, Future, IntoFuture};
+use tokio::prelude::{future, stream, AsyncRead, Future, Stream};
+use tokio_io::codec::LinesCodec;
+
+use messages::*;
 
 pub fn spawn_bash_and_listen_future() {
     let addr = "127.0.0.1:8080".parse().unwrap();
     let listener = TcpListener::bind(&addr).expect("Failed to bind listener");
 
     let (stm_shl_sx, stm_shl_rx) = channel::<Message>();
-    let shl_stm_sxs: Vec<Sender<Message>> = Vec::new();
+    let shl_stm_sxs = Arc::new(Mutex::new(Vec::<Sender<Response>>::new()));
 
-    let streams_handler = listener
+    let shl_stm_sxs_cl = shl_stm_sxs.clone();
+    let client_handler = listener
         .incoming()
         .map_err(|e| eprintln!("Incoming failed: {:?}", e))
         .for_each(move |sock| {
-            let (reader, writer) = sock.split();
+            let (sink, stream) = sock.framed(LinesCodec::new()).split();
 
             println!("Received connection..."); // TODO: add more info to log
 
             let stm_shl_sx = stm_shl_sx.clone();
-            let read = tokio::io::lines(BufReader::new(reader))
+            let input_handler = stream
                 .map_err(|e| format!("Failed to read line: {:?}", e))
                 .for_each(move |line| {
+                    println!("{}", line);
+
                     let user_input = serde_json::from_str::<Message>(&line).unwrap();
 
                     future::result(
@@ -41,16 +40,70 @@ pub fn spawn_bash_and_listen_future() {
                     )
                 });
 
-            let write = future::failed::<(), String>("unimplemented".to_owned());
+            let (shl_stm_sx, shl_stm_rx) = channel::<Response>();
+            {
+                shl_stm_sxs_cl
+                    .lock()
+                    .expect("Poisoned Vec of shell -> stream Senders")
+                    .push(shl_stm_sx);
+            }
+            let response_handler = stream::iter_ok(shl_stm_rx)
+                .map(|resp| {
+                    let mut ser = serde_json::to_string(&resp).unwrap();
+                    ser.push_str("\n");
+                    ser
+                })
+                .forward(sink)
+                .map_err(|e: ::std::io::Error| format!("Error writing response: {:?}", e));
 
             tokio::spawn(
-                read.join(write)
-                    .map_err(|e| eprintln!("Stream handler errored: {:?}", e))
-                    .map(|_| println!("Stream handler succeeded")),
+                input_handler
+                    .join(response_handler)
+                    .map_err(|e| eprintln!("Client handler errored: {:?}", e))
+                    .map(|_| println!("Client handler succeeded")),
             )
         });
 
-    tokio::run(streams_handler);
+    let shell_handler = future::lazy(move || {
+        while let Ok(input) = stm_shl_rx.recv() {
+            let response = match input.mode {
+                Mode::Chat => {
+                    println!(
+                        "MAIN: received chat from {:?}: {:?}",
+                        input.user_name, input.content
+                    );
+                    input.content.clone()
+                }
+                Mode::Cmd => {
+                    println!(
+                        "MAIN: received command from {:?}: {:?}",
+                        input.user_name, input.content
+                    );
+
+                    "not yet running commands".to_owned()
+                    // match run_command(&input.content) {
+                    //     Ok(resp) => resp,
+                    //     Err(e) => format!("Error running command: {}", e),
+                    // }
+                }
+            };
+
+            let response = Response {
+                og_msg: input,
+                response,
+            };
+
+            let mut guard = shl_stm_sxs.lock().expect("Poisoned Vec of outgoing sxs");
+            guard.retain(|shl_stm_sx| shl_stm_sx.send(response.clone()).is_ok());
+
+            println!("MAIN: {} clients relayed to", guard.len());
+        }
+
+        eprintln!("MAIN: ERROR - receiver that cannot hang up hung up");
+        future::failed::<(), ()>(())
+    });
+
+    tokio::run(client_handler.join(shell_handler).map(|_| {}));
 }
 
 /*
