@@ -21,89 +21,103 @@ pub fn spawn_bash_and_listen_future() {
         .incoming()
         .map_err(|e| eprintln!("Incoming failed: {:?}", e))
         .for_each(move |sock| {
+            let shl_stm_sxs_cl = shl_stm_sxs_cl.clone();
             let (sink, stream) = sock.framed(LinesCodec::new()).split();
 
             println!("Received connection..."); // TODO: add more info to log
 
-            let stm_shl_sx = stm_shl_sx.clone();
-            let input_handler = stream
-                .map_err(|e| format!("Failed to read line: {:?}", e))
-                .for_each(move |line| {
-                    println!("{}", line);
+            let user_input = Message {
+                content: "dongle".to_owned(),
+                mode: Mode::Chat,
+                user_name: "sasha".to_owned(),
+            };
+            // stm_shl_sx.send(user_input);
 
-                    let user_input = serde_json::from_str::<Message>(&line).unwrap();
+            future::ok::<(), ()>({ println!("dongle {:?}", user_input) })
 
-                    future::result(
-                        stm_shl_sx
-                            .send(user_input)
-                            .map_err(|e| format!("Failed to send: {:?}", e)),
-                    )
-                });
+            // let stm_shl_sx = stm_shl_sx.clone();
+            // let input_handler = stream
+            //     .map_err(|e| format!("Failed to read line: {:?}", e))
+            //     .for_each(move |line| {
+            //         println!("{}", line);
 
-            let (shl_stm_sx, shl_stm_rx) = channel::<Response>();
-            {
-                shl_stm_sxs_cl
-                    .lock()
-                    .expect("Poisoned Vec of shell -> stream Senders")
-                    .push(shl_stm_sx);
-            }
-            let response_handler = stream::iter_ok(shl_stm_rx)
-                .map(|resp| {
-                    let mut ser = serde_json::to_string(&resp).unwrap();
-                    ser.push_str("\n");
-                    ser
-                })
-                .forward(sink)
-                .map_err(|e: ::std::io::Error| format!("Error writing response: {:?}", e));
+            //         // let user_input = serde_json::from_str::<Message>(&line).unwrap();
+            //         let user_input = Message {
+            //             content: "dongle".to_owned(),
+            //             mode: Mode::Chat,
+            //             user_name: "sasha".to_owned(),
+            //         };
 
-            tokio::spawn(
-                input_handler
-                    .join(response_handler)
-                    .map_err(|e| eprintln!("Client handler errored: {:?}", e))
-                    .map(|_| println!("Client handler succeeded")),
-            )
+            //         future::result(
+            //             stm_shl_sx
+            //                 .send(user_input)
+            //                 .map_err(|e| format!("Failed to send: {:?}", e)),
+            //         )
+            //     });
+
+            // let (shl_stm_sx, shl_stm_rx) = channel::<Response>();
+            // {
+            //     shl_stm_sxs_cl
+            //         .lock()
+            //         .expect("Poisoned Vec of shell -> stream Senders")
+            //         .push(shl_stm_sx);
+            // }
+            // let response_handler = stream::iter_ok(shl_stm_rx)
+            //     .map(|resp| {
+            //         let mut ser = serde_json::to_string(&resp).unwrap();
+            //         ser.push_str("\n");
+            //         ser
+            //     })
+            //     .forward(sink)
+            //     .map_err(|e: ::std::io::Error| format!("Error writing response: {:?}", e));
+
+            // tokio::spawn(
+            //     input_handler
+            //         // .join(response_handler)
+            //         .map_err(|e| eprintln!("Client handler errored: {:?}", e))
+            //         // .map(|_| println!("Client handler succeeded")),
+            // )
         });
 
-    let shell_handler = future::lazy(move || {
-        while let Ok(input) = stm_shl_rx.recv() {
-            let response = match input.mode {
-                Mode::Chat => {
-                    println!(
-                        "MAIN: received chat from {:?}: {:?}",
-                        input.user_name, input.content
-                    );
-                    input.content.clone()
-                }
-                Mode::Cmd => {
-                    println!(
-                        "MAIN: received command from {:?}: {:?}",
-                        input.user_name, input.content
-                    );
+    let shell_handler = stream::iter_ok(stm_shl_rx).for_each(move |input| {
+        let response_content = match input.mode {
+            Mode::Chat => {
+                println!(
+                    "MAIN: received chat from {:?}: {:?}",
+                    input.user_name, input.content
+                );
+                input.content.clone()
+            }
+            Mode::Cmd => {
+                println!(
+                    "MAIN: received command from {:?}: {:?}",
+                    input.user_name, input.content
+                );
 
-                    "not yet running commands".to_owned()
-                    // match run_command(&input.content) {
-                    //     Ok(resp) => resp,
-                    //     Err(e) => format!("Error running command: {}", e),
-                    // }
-                }
-            };
+                "yay".to_owned()
+                // match run_command(&input.content) {
+                //     Ok(resp) => resp,
+                //     Err(e) => format!("Error running command: {}", e),
+                // }
+            }
+        };
 
-            let response = Response {
-                og_msg: input,
-                response,
-            };
+        let response = Response {
+            og_msg: input,
+            response: response_content,
+        };
 
-            let mut guard = shl_stm_sxs.lock().expect("Poisoned Vec of outgoing sxs");
-            guard.retain(|shl_stm_sx| shl_stm_sx.send(response.clone()).is_ok());
+        let mut guard = shl_stm_sxs.lock().expect("Poisoned Vec of outgoing sxs");
+        guard.retain(|shl_stm_sx| shl_stm_sx.send(response.clone()).is_ok());
 
-            println!("MAIN: {} clients relayed to", guard.len());
-        }
-
-        eprintln!("MAIN: ERROR - receiver that cannot hang up hung up");
-        future::failed::<(), ()>(())
+        future::ok::<(), ()>({ println!("MAIN: {} clients relayed to", guard.len()) })
     });
 
-    tokio::run(client_handler.join(shell_handler).map(|_| {}));
+    tokio::run(
+        client_handler
+            .join(shell_handler)
+            .map(|_| println!("Shutting down...")),
+    );
 }
 
 /*
