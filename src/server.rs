@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use serde_json;
 use tokio;
 use tokio::net::TcpListener;
-use tokio::prelude::{future, stream, AsyncRead, Future, Stream};
+use tokio::prelude::{future, stream, AsyncRead, Future, Sink, Stream};
 use tokio_io::codec::LinesCodec;
 
 use messages::*;
@@ -26,91 +26,104 @@ pub fn spawn_bash_and_listen_future() {
 
             println!("Received connection..."); // TODO: add more info to log
 
-            let user_input = Message {
-                content: "dongle".to_owned(),
-                mode: Mode::Chat,
-                user_name: "sasha".to_owned(),
-            };
-            // stm_shl_sx.send(user_input);
+            //             let user_input = Message {
+            //                 content: "dongle".to_owned(),
+            //                 mode: Mode::Chat,
+            //                 user_name: "sasha".to_owned(),
+            //             };
+            //             future::ok::<(), ()>({ println!("dongle {:?}", user_input) })
 
-            future::ok::<(), ()>({ println!("dongle {:?}", user_input) })
+            let stm_shl_sx = stm_shl_sx.clone();
+            let input_handler = stream
+                .map_err(|e| format!("Failed to read line: {:?}", e))
+                .for_each(move |line| {
+                    println!("{}", line);
 
-            // let stm_shl_sx = stm_shl_sx.clone();
-            // let input_handler = stream
-            //     .map_err(|e| format!("Failed to read line: {:?}", e))
-            //     .for_each(move |line| {
-            //         println!("{}", line);
+                    // let user_input = serde_json::from_str::<Message>(&line).unwrap();
+                    let user_input = Message {
+                        content: "dongle".to_owned(),
+                        mode: Mode::Chat,
+                        user_name: "sasha".to_owned(),
+                    };
 
-            //         // let user_input = serde_json::from_str::<Message>(&line).unwrap();
-            //         let user_input = Message {
-            //             content: "dongle".to_owned(),
-            //             mode: Mode::Chat,
-            //             user_name: "sasha".to_owned(),
-            //         };
+                    future::result(
+                        stm_shl_sx
+                            .send(user_input)
+                            .map_err(|e| format!("Failed to send: {:?}", e)),
+                    )
+                });
 
-            //         future::result(
-            //             stm_shl_sx
-            //                 .send(user_input)
-            //                 .map_err(|e| format!("Failed to send: {:?}", e)),
-            //         )
-            //     });
+            let (shl_stm_sx, shl_stm_rx) = channel::<Response>();
+            {
+                shl_stm_sxs_cl
+                    .lock()
+                    .expect("Poisoned Vec of shell -> stream Senders")
+                    .push(shl_stm_sx);
+            }
+            let response_handler = future::loop_fn(shl_stm_rx, move |shl_stm_rx| {
+                if let Ok(resp) = shl_stm_rx.recv() {
+                    let mut ser = serde_json::to_string(&resp).unwrap();
+                    ser.push_str("\n");
 
-            // let (shl_stm_sx, shl_stm_rx) = channel::<Response>();
-            // {
-            //     shl_stm_sxs_cl
-            //         .lock()
-            //         .expect("Poisoned Vec of shell -> stream Senders")
-            //         .push(shl_stm_sx);
-            // }
-            // let response_handler = stream::iter_ok(shl_stm_rx)
-            //     .map(|resp| {
-            //         let mut ser = serde_json::to_string(&resp).unwrap();
-            //         ser.push_str("\n");
-            //         ser
-            //     })
-            //     .forward(sink)
-            //     .map_err(|e: ::std::io::Error| format!("Error writing response: {:?}", e));
+                    sink.send(ser)
+                        .wait()
+                        .map_err(|e| println!("Failed to write response: {:?}", e))
+                        .map(|_| future::Loop::Continue(shl_stm_rx))
+                } else {
+                    Ok(future::Loop::Break(()))
+                }
+            });
 
-            // tokio::spawn(
-            //     input_handler
-            //         // .join(response_handler)
-            //         .map_err(|e| eprintln!("Client handler errored: {:?}", e))
-            //         // .map(|_| println!("Client handler succeeded")),
-            // )
+            // input_handler
+            //     .join(response_handler)
+            //     .map_err(|e| eprintln!("Client handler errored: {:?}", e))
+            //     .map(|_| println!("Client handler succeeded"))
+
+            future::ok::<(), ()>(println!("asdf"))
         });
 
-    let shell_handler = stream::iter_ok(stm_shl_rx).for_each(move |input| {
-        let response_content = match input.mode {
-            Mode::Chat => {
-                println!(
-                    "MAIN: received chat from {:?}: {:?}",
-                    input.user_name, input.content
-                );
-                input.content.clone()
-            }
-            Mode::Cmd => {
-                println!(
-                    "MAIN: received command from {:?}: {:?}",
-                    input.user_name, input.content
-                );
+    let user_input = Message {
+        content: "dongle".to_owned(),
+        mode: Mode::Chat,
+        user_name: "sasha".to_owned(),
+    };
 
-                "yay".to_owned()
-                // match run_command(&input.content) {
-                //     Ok(resp) => resp,
-                //     Err(e) => format!("Error running command: {}", e),
-                // }
-            }
-        };
+    let shell_handler = future::loop_fn(stm_shl_rx, move |stm_shl_rx| {
+        if let Ok(input) = stm_shl_rx.recv() {
+            let response_content = match input.mode {
+                Mode::Chat => {
+                    println!(
+                        "MAIN: received chat from {:?}: {:?}",
+                        input.user_name, input.content
+                    );
+                    input.content.clone()
+                }
+                Mode::Cmd => {
+                    println!(
+                        "MAIN: received command from {:?}: {:?}",
+                        input.user_name, input.content
+                    );
 
-        let response = Response {
-            og_msg: input,
-            response: response_content,
-        };
+                    "yay".to_owned()
+                    // match run_command(&input.content) {
+                    //     Ok(resp) => resp,
+                    //     Err(e) => format!("Error running command: {}", e),
+                    // }
+                }
+            };
 
-        let mut guard = shl_stm_sxs.lock().expect("Poisoned Vec of outgoing sxs");
-        guard.retain(|shl_stm_sx| shl_stm_sx.send(response.clone()).is_ok());
+            let response = Response {
+                og_msg: input,
+                response: response_content,
+            };
 
-        future::ok::<(), ()>({ println!("MAIN: {} clients relayed to", guard.len()) })
+            let mut guard = shl_stm_sxs.lock().expect("Poisoned Vec of outgoing sxs");
+            guard.retain(|shl_stm_sx| shl_stm_sx.send(response.clone()).is_ok());
+
+            Ok(future::Loop::Continue(stm_shl_rx))
+        } else {
+            Ok(future::Loop::Break({ println!("Shell handler is done") }))
+        }
     });
 
     tokio::run(
