@@ -1,5 +1,6 @@
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
+use std::path::PathBuf;
 use std::process::Command;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
@@ -9,29 +10,42 @@ use messages::*;
 
 use serde_json;
 
-pub fn spawn_bash_and_listen() {
-    let listener = TcpListener::bind("127.0.0.1:8080").unwrap();
-
-    let (stm_shl_sx, stm_shl_rx) = channel::<Message>();
-    let shl_stm_sxs = Arc::new(Mutex::new(Vec::new()));
-
-    let sxs = shl_stm_sxs.clone();
-    thread::spawn(move || {
-        handle_incoming_streams(sxs, listener, stm_shl_sx);
-    });
-
-    loop {
-        pipe_stream_to_shell_and_relay_response(&stm_shl_rx, &shl_stm_sxs);
-    }
+struct ShellManager {
+    wd: PathBuf,
+    env: Vec<(String, String)>,
 }
 
-fn run_command(content: &str) -> Result<String, String> {
-    let mut words = content.split_whitespace();
-    if let Some(cmd) = words.next() {
-        let mut process = Command::new(cmd);
-        while let Some(arg) = words.next() {
-            process.arg(arg);
+impl ShellManager {
+    fn new() -> Self {
+        ShellManager {
+            wd: ::std::env::current_dir().unwrap(),
+            env: Vec::new(),
         }
+    }
+
+    fn setup_process(&self, cmd: &str) -> Result<Command, String> {
+        let mut words = cmd.split_whitespace();
+        if let Some(cmd) = words.next() {
+            let mut process = Command::new(cmd);
+            process.current_dir(&self.wd).env_clear();
+
+            for (k, v) in &self.env {
+                process.env(k, v);
+            }
+
+            while let Some(arg) = words.next() {
+                process.arg(arg);
+            }
+
+            Ok(process)
+        } else {
+            println!("Empty input");
+            Err("Empty input".to_owned())
+        }
+    }
+
+    fn run_command(&self, content: &str) -> Result<String, String> {
+        let mut process = self.setup_process(content)?;
 
         match process.output() {
             Ok(output) => {
@@ -53,13 +67,28 @@ fn run_command(content: &str) -> Result<String, String> {
                 Err(format!("Bad input: {:?}", content))
             }
         }
-    } else {
-        println!("Empty input");
-        Err("Empty input".to_owned())
+    }
+}
+
+pub fn spawn_bash_and_listen() {
+    let listener = TcpListener::bind("127.0.0.1:8080").unwrap();
+
+    let (stm_shl_sx, stm_shl_rx) = channel::<Message>();
+    let shl_stm_sxs = Arc::new(Mutex::new(Vec::new()));
+
+    let sxs = shl_stm_sxs.clone();
+    thread::spawn(move || {
+        handle_incoming_streams(sxs, listener, stm_shl_sx);
+    });
+
+    let mut shell = ShellManager::new();
+    loop {
+        pipe_stream_to_shell_and_relay_response(&mut shell, &stm_shl_rx, &shl_stm_sxs);
     }
 }
 
 fn pipe_stream_to_shell_and_relay_response(
+    shell: &mut ShellManager,
     stm_shl_rx: &Receiver<Message>,
     shl_stm_sxs: &Arc<Mutex<Vec<Sender<Response>>>>,
 ) {
@@ -79,7 +108,7 @@ fn pipe_stream_to_shell_and_relay_response(
                 input.user_name, input.content
             );
 
-            match run_command(&input.content) {
+            match shell.run_command(&input.content) {
                 Ok(resp) => resp,
                 Err(e) => format!("Error running command: {}", e),
             }

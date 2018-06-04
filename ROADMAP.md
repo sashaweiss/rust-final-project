@@ -1,3 +1,7 @@
+### Super todo:
+* Merge stdout and stderr
+* Maintain working directory and environment
+
 ### API Ideas
 As a client:
 * Send a single pre-scripted command, get the output back in a useful format
