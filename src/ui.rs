@@ -17,7 +17,7 @@ use chan;
 
 use chrono::prelude::*;
 
-use client::ShellConnection;
+use client::{ShellClient, ShellConnection};
 use messages::*;
 
 const TIME_FORMAT: &'static str = "%H:%M:%S";
@@ -42,7 +42,7 @@ impl App {
     }
 }
 
-pub fn render(connection: &mut ShellConnection<TcpStream>, user_name: &str) {
+pub fn render(connection: &mut ShellConnection, client: &ShellClient) {
     // Input thread
     let (input_tx, input_rx) = chan::sync(0);
     thread::spawn(move || {
@@ -72,7 +72,7 @@ pub fn render(connection: &mut ShellConnection<TcpStream>, user_name: &str) {
     terminal.clear().unwrap();
     terminal.hide_cursor().unwrap();
     app.size = terminal.size().unwrap();
-    draw(&mut terminal, &app);
+    draw(&mut terminal, &app, client);
 
     loop {
         // Adjust size if necessary
@@ -84,27 +84,31 @@ pub fn render(connection: &mut ShellConnection<TcpStream>, user_name: &str) {
 
         chan_select! {
             input_rx.recv() -> key => {
+                let br = client.break_on;
                 match key.unwrap() {
-                    event::Key::Ctrl('c') | event::Key::Esc => {
+                    br => {
                         break;
                     }
                     event::Key::Char('\n') => {
                         let message = app.input.drain(..).collect::<String>();
-                        match message.as_ref() {
-                            "CHAT" => {
+                        let chat = &client.chat;
+                        let cmd = &client.cmd;
+                        let clear = &client.clear;
+                        match message {
+                            chat => {
                                 app.input_mode = Mode::Chat;
                             }
-                            "CMD" => {
+                            cmd => {
                                 app.input_mode = Mode::Cmd;
                             }
-                            "CLEAR" => {
+                            clear => {
                                 match app.input_mode {
                                     Mode::Cmd => app.commands.clear(),
                                     Mode::Chat => app.messages.clear(),
                                 };
                             }
                             _ => {
-                                connection.send_input(&message, &app.input_mode, &user_name).unwrap();
+                                connection.send_input(&message, &app.input_mode, &client.user_name).unwrap();
                             }
                         }
                     }
@@ -133,30 +137,32 @@ pub fn render(connection: &mut ShellConnection<TcpStream>, user_name: &str) {
             },
         }
 
-        draw(&mut terminal, &app);
+        draw(&mut terminal, &app, client);
     }
 
     terminal.show_cursor().unwrap();
 }
 
-fn draw(t: &mut Terminal<MouseBackend>, app: &App) {
+fn draw(t: &mut Terminal<MouseBackend>, app: &App, client: &ShellClient) {
     Group::default()
         .direction(Direction::Vertical)
         .margin(2)
         .sizes(&[Size::Fixed(3), Size::Min(1)])
         .render(t, &app.size, |t, chunks| {
-            Paragraph::default()
-                .style(Style::default().fg(Color::Yellow))
-                .block(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .title(match app.input_mode {
-                            Mode::Chat => "Chat",
-                            Mode::Cmd => "Command",
-                        }),
-                )
-                .text(&app.input)
-                .render(t, &chunks[0]);
+            if client.input_on_top {
+                Paragraph::default()
+                    .style(Style::default().fg(Color::Yellow))
+                    .block(
+                        Block::default()
+                            .borders(Borders::ALL)
+                            .title(match app.input_mode {
+                                Mode::Chat => "Chat",
+                                Mode::Cmd => "Command",
+                            }),
+                    )
+                    .text(&app.input)
+                    .render(t, &chunks[0]);
+            }
 
             Group::default()
                 .direction(Direction::Horizontal)
