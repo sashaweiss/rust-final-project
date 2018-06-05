@@ -4,7 +4,6 @@ use std::io;
 use std::thread;
 
 use chan;
-use rand::random;
 use termion::input::TermRead;
 
 use messages::*;
@@ -27,7 +26,7 @@ pub trait ShellClient: Sized {
 pub fn connect<C: ShellClient>(client: C) {
     let mut connection = ShellConnection::connect("127.0.0.1:8080").unwrap();
 
-    // render(&mut connection, );
+    render(&mut connection, client);
 }
 
 fn render<C: ShellClient>(connection: &mut ShellConnection, mut client: C) {

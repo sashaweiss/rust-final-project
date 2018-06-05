@@ -10,9 +10,6 @@ use syncterm::Key;
 use syncterm::client::*;
 use syncterm::messages::*;
 
-use termion::event;
-use termion::input::TermRead;
-
 use tui::Terminal;
 use tui::backend::MouseBackend;
 use tui::layout::{Direction, Group, Rect, Size};
@@ -44,7 +41,7 @@ impl App {
 impl ShellClient for App {
     fn on_key(&mut self, key: syncterm::Key) -> KeyAction {
         match key {
-            Key::Ctrl('c') | event::Key::Esc => {
+            Key::Ctrl('c') | Key::Esc => {
                 return KeyAction::Exit;
             }
             Key::Char('\n') => {
@@ -113,78 +110,79 @@ impl ShellClient for App {
     }
 
     fn draw(&mut self) {
-        // self.terminal.resize(self.terminal.size().unwrap()).unwrap();
+        let mut size = self.terminal.size().unwrap();
+        self.terminal.resize(size).unwrap();
 
-        // Group::default()
-        //     .direction(Direction::Vertical)
-        //     .margin(2)
-        //     .sizes(&[Size::Fixed(3), Size::Min(1)])
-        //     .render(
-        //         &mut self.terminal,
-        //         &self.terminal.size().unwrap(),
-        //         |t, chunks| {
-        //             Paragraph::default()
-        //                 .style(Style::default().fg(Color::Yellow))
-        //                 .block(Block::default().borders(Borders::ALL).title(
-        //                     match self.input_mode {
-        //                         Mode::Chat => "Chat",
-        //                         Mode::Cmd => "Command",
-        //                     },
-        //                 ))
-        //                 .text(&self.input)
-        //                 .render(t, &chunks[0]);
+        size = self.terminal.size().unwrap();
+        let mode = &self.input_mode;
+        let input = &self.input;
+        let messages = &self.messages;
+        let commands = &self.commands;
 
-        //             Group::default()
-        //                 .direction(Direction::Horizontal)
-        //                 .margin(0)
-        //                 .sizes(&[Size::Percent(50), Size::Percent(50)])
-        //                 .render(&mut self.terminal, &chunks[1], |t, chunks| {
-        //                     // Use Paragraphs so we can get text wrapping
-        //                     let messages: String = self.messages.iter().rev().fold(
-        //                         "".to_owned(),
-        //                         |mut acc, (t, u, m)| {
-        //                             acc.push_str(&format!(
-        //                                 "{}: {}: {}\n",
-        //                                 t.format(TIME_FORMAT).to_string(),
-        //                                 u,
-        //                                 m
-        //                             ));
-        //                             acc
-        //                         },
-        //                     );
-        //                     Paragraph::default()
-        //                         .block(Block::default().borders(Borders::ALL).title("Messages"))
-        //                         .wrap(true)
-        //                         .text(&messages)
-        //                         .render(t, &chunks[0]);
+        Group::default()
+            .direction(Direction::Vertical)
+            .margin(2)
+            .sizes(&[Size::Fixed(3), Size::Min(1)])
+            .render(&mut self.terminal, &size, |t, chunks| {
+                Paragraph::default()
+                    .style(Style::default().fg(Color::Yellow))
+                    .block(Block::default().borders(Borders::ALL).title(match *mode {
+                        Mode::Chat => "Chat",
+                        Mode::Cmd => "Command",
+                    }))
+                    .text(input)
+                    .render(t, &chunks[0]);
 
-        //                     let commands: String = self.commands.iter().rev().fold(
-        //                         "".to_owned(),
-        //                         |mut acc, (t, u, c, m)| {
-        //                             acc.push_str(&format!(
-        //                                 "{}: {} >> {}\n{}{}\n",
-        //                                 t.format(TIME_FORMAT).to_string(),
-        //                                 u,
-        //                                 c,
-        //                                 m,
-        //                                 if m.ends_with("\n") { "" } else { "\n" }
-        //                             ));
-        //                             acc
-        //                         },
-        //                     );
-        //                     Paragraph::default()
-        //                         .block(Block::default().borders(Borders::ALL).title("Commands"))
-        //                         .wrap(true)
-        //                         .text(&commands)
-        //                         .render(t, &chunks[1]);
-        //                 });
-        //         },
-        //     );
+                Group::default()
+                    .direction(Direction::Horizontal)
+                    .margin(0)
+                    .sizes(&[Size::Percent(50), Size::Percent(50)])
+                    .render(t, &chunks[1], |t, chunks| {
+                        // Use Paragraphs so we can get text wrapping
+                        let messages: String = messages.iter().rev().fold(
+                            "".to_owned(),
+                            |mut acc, (t, u, m)| {
+                                acc.push_str(&format!(
+                                    "{}: {}: {}\n",
+                                    t.format(TIME_FORMAT).to_string(),
+                                    u,
+                                    m
+                                ));
+                                acc
+                            },
+                        );
+                        Paragraph::default()
+                            .block(Block::default().borders(Borders::ALL).title("Messages"))
+                            .wrap(true)
+                            .text(&messages)
+                            .render(t, &chunks[0]);
 
-        // self.terminal.draw().unwrap();
+                        let commands: String = commands.iter().rev().fold(
+                            "".to_owned(),
+                            |mut acc, (t, u, c, m)| {
+                                acc.push_str(&format!(
+                                    "{}: {} >> {}\n{}{}\n",
+                                    t.format(TIME_FORMAT).to_string(),
+                                    u,
+                                    c,
+                                    m,
+                                    if m.ends_with("\n") { "" } else { "\n" }
+                                ));
+                                acc
+                            },
+                        );
+                        Paragraph::default()
+                            .block(Block::default().borders(Borders::ALL).title("Commands"))
+                            .wrap(true)
+                            .text(&commands)
+                            .render(t, &chunks[1]);
+                    });
+            });
+
+        self.terminal.draw().unwrap();
     }
 }
 
 fn main() {
-    println!("go away");
+    connect(App::new());
 }
