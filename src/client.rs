@@ -1,68 +1,80 @@
-use std::io::{self, BufRead, BufReader, Read, Write};
-use std::net::TcpStream;
+/// This file borrowed from the `tui-rs` examples, and modified for our purposes.
+/// See: https://github.com/fdehau/tui-rs/blob/master/examples/user_input.rs
+use std::io;
+use std::thread;
+
+use chan;
+use rand::random;
+use termion::input::TermRead;
 
 use messages::*;
-use ui;
+use shell_connection::ShellConnection;
 
-use rand::random;
-use serde_json;
-
-pub struct ShellConnection<S: Read + Write> {
-    stream: S,
-    remote_url: String,
+pub enum KeyAction {
+    DoNothing,
+    Exit,
+    SendMessage(Message), // TODO: Message -> Serializable
 }
 
-impl ShellConnection<TcpStream> {
-    pub fn connect(url: &str) -> io::Result<Self> {
-        let stream = TcpStream::connect(url)?;
-
-        Ok(Self {
-            stream,
-            remote_url: url.to_owned(),
-        })
-    }
-
-    pub fn try_clone(&self) -> io::Result<Self> {
-        let stream_clone = self.stream.try_clone()?;
-
-        Ok(Self {
-            stream: stream_clone,
-            remote_url: self.remote_url.clone(),
-        })
-    }
-
-    pub fn send_input(&mut self, content: &str, mode: &Mode, user_name: &str) -> io::Result<usize> {
-        let input = Message {
-            content: content.to_owned(),
-            mode: mode.clone(),
-            user_name: user_name.to_owned(),
-        };
-
-        let mut sendable = serde_json::to_vec(&input).unwrap();
-        sendable.push(b'\n');
-
-        self.stream.write(&sendable)
-    }
-
-    pub fn read_response(&self) -> Result<Response, String> {
-        let mut resp = String::new();
-        BufReader::new(&self.stream)
-            .read_line(&mut resp)
-            .map_err(|e| format!("Error reading: {:?}", e))?;
-
-        serde_json::from_str(&resp).map_err(|e| format!("Error reading: {:?}", e))
-    }
+pub trait ShellClient: Sized {
+    fn on_key(&mut self, super::Key) -> KeyAction;
+    fn receive_response(&mut self, Response); // TODO: Response -> Deserializable
+    fn draw(&mut self);
+    fn first_draw(&mut self);
+    fn last_draw(&mut self);
 }
 
-pub fn connect_and_echo() {
-    let mut args = ::std::env::args(); // TODO: make this safer
-    args.next();
-    let user_name = match args.next() {
-        Some(n) => n,
-        None => (0..4).map(|_| random::<char>()).collect(),
-    };
-
+pub fn connect<C: ShellClient>(client: C) {
     let mut connection = ShellConnection::connect("127.0.0.1:8080").unwrap();
 
-    ui::render(&mut connection, &user_name);
+    // render(&mut connection, );
+}
+
+fn render<C: ShellClient>(connection: &mut ShellConnection, mut client: C) {
+    // Input thread
+    let (input_tx, input_rx) = chan::sync(0);
+    thread::spawn(move || {
+        let stdin = io::stdin();
+        for c in stdin.keys() {
+            let evt = c.unwrap();
+            input_tx.send(evt);
+        }
+    });
+
+    // Connection reading thread
+    let (response_tx, response_rx) = chan::sync(0);
+    let read_connection = connection.try_clone().unwrap();
+    thread::spawn(move || loop {
+        match read_connection.read_response() {
+            Ok(resp) => response_tx.send(resp),
+            Err(_) => break,
+        };
+    });
+
+    client.first_draw();
+
+    loop {
+        chan_select! {
+            input_rx.recv() -> key => {
+                match client.on_key(key.unwrap()) {
+                    KeyAction::DoNothing => {}
+                    KeyAction::Exit => break,
+                    KeyAction::SendMessage(msg) => {
+                        connection.send_input(msg).unwrap();
+                    }
+                }
+            },
+            response_rx.recv() -> response => {
+                if let Some(response) = response {
+                    client.receive_response(response);
+                } else {
+                    break;
+                }
+            },
+        }
+
+        client.draw();
+    }
+
+    client.last_draw();
 }

@@ -12,3 +12,15 @@ tui = "0.2"
 termion = "1.5"
 chan = "0.1"
 chrono = "0.4"
+
+[lib]
+name = "syncterm"
+path = "src/lib.rs"
+
+[[bin]]
+name = "git_helper_client"
+path = "src/git_helper/client/main.rs"
+
+[[bin]]
+name = "git_helper_server"
+path = "src/git_helper/server/main.rs"

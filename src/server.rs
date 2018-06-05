@@ -9,6 +9,10 @@ use messages::*;
 
 use serde_json;
 
+trait ShellServer {
+    fn process_input(Message) -> Result<Response, String>;
+}
+
 pub fn spawn_bash_and_listen() {
     let listener = TcpListener::bind("127.0.0.1:8080").unwrap();
 

@@ -12,4 +12,6 @@ extern crate tui;
 pub mod client;
 pub mod messages;
 pub mod server;
-pub mod ui;
+mod shell_connection;
+
+pub use termion::event::Key;
