@@ -5,16 +5,10 @@ use syncterm::server::*;
 
 use std::process::Command;
 
-struct App {}
+struct App();
 
-impl App {
-    fn new() -> App {
-        App {}
-    }
-}
-
-impl ShellServer for App {
-    fn process_input(&self, input: Message) -> Result<Response, String> {
+impl ShellServer<Message, Response> for App {
+    fn process_input(&self, input: Message) -> Response {
         let response = match input.mode {
             Mode::Chat => {
                 println!(
@@ -31,15 +25,15 @@ impl ShellServer for App {
 
                 match run_command(&input.content) {
                     Ok(resp) => resp,
-                    Err(e) => return Err(format!("Error running command: {}", e)),
+                    Err(e) => format!("Error running command: {}", e),
                 }
             }
         };
 
-        Ok(Response {
+        Response {
             og_msg: input,
             response,
-        })
+        }
     }
 }
 
@@ -78,5 +72,5 @@ fn run_command(content: &str) -> Result<String, String> {
 }
 
 fn main() {
-    spawn_bash_and_listen(App::new());
+    spawn_bash_and_listen(App());
 }
