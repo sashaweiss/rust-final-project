@@ -65,7 +65,7 @@ impl ShellClient for App {
                         return KeyAction::SendMessage(Message {
                             content: message,
                             mode: Mode::Chat,
-                            user_name: "jenie".to_owned(),
+                            user_name: "jennie".to_owned(),
                         });
                     }
                 }

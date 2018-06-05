@@ -7,20 +7,77 @@ use termion::input::TermRead;
 use messages::*;
 use shell_connection::ShellConnection;
 
+
+/// Returned by ShellClient::on_key to specify an API action to be triggered after a key is pressed.
 pub enum KeyAction {
+    /// No action
     DoNothing,
+    /// Exits from synced terminal
     Exit,
+    /// Sends a user's input to the server defined by ShellServer
     SendMessage(Message), // TODO: Message -> Serializable
 }
 
+
+/// Trait implemented by a struct to define customizable functionality for a synchronous terminal client.
+///
+/// # Examples
+/// ```
+///
+/// ```
+///
 pub trait ShellClient: Sized {
+    /// Given a key press, defines actions to take. Returns a KeyAction to trigger additional API actions.
+    ///
+    /// # Examples
+    /// ```
+    ///
+    /// ```
+    ///
     fn on_key(&mut self, super::Key) -> KeyAction;
+
+    /// When client receives a response from the server, defines any actions to take.
+    ///
+    /// # Examples
+    /// ```
+    ///
+    /// ```
+    ///
     fn receive_response(&mut self, Response); // TODO: Response -> Deserializable
-    fn draw(&mut self);
+
+    /// Initializes the client UI.
+    ///
+    /// # Examples
+    /// ```
+    ///
+    /// ```
+    ///
     fn first_draw(&mut self);
+
+    /// Updates the client UI (called in a loop).
+    ///
+    /// # Examples
+    /// ```
+    ///
+    /// ```
+    ///
+    fn draw(&mut self);
+
+    /// Client UI right after exiting shared terminal.
+    ///
+    /// # Examples
+    /// ```
+    ///
+    /// ```
+    ///
     fn last_draw(&mut self);
 }
 
+/// Takes in an instances of a Shell Client and connects to the server.
+/// /// # Examples
+/// ```
+///
+/// ```
 pub fn connect<C: ShellClient>(client: C) {
     let mut connection = ShellConnection::connect("127.0.0.1:8080").unwrap();
 

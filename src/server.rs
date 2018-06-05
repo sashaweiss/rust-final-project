@@ -8,10 +8,25 @@ use messages::*;
 
 use serde_json;
 
+/// Trait implemented by a struct to define customizable functionality for a synchronous terminal server.
+///
+/// # Examples
+/// ```
+///
+/// ```
+///
 pub trait ShellServer {
     fn process_input(&self, Message) -> Result<Response, String>;
 }
 
+/// Takes in an instances of a ShellServer, and starts a server that synchronous terminals clients
+/// can connect to.
+///
+/// # Examples
+/// ```
+///
+/// ```
+///
 pub fn spawn_bash_and_listen<S: ShellServer>(server: S) {
     let listener = TcpListener::bind("127.0.0.1:8080").unwrap();
 
