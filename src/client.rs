@@ -4,18 +4,16 @@ use std::thread;
 use chan;
 use termion::input::TermRead;
 
-use messages::*;
+use super::{DeserializeOwned, Serialize};
 use shell_connection::ShellConnection;
 
-
 /// Returned by ShellClient::on_key to specify an API action to be triggered after a key is pressed.
-pub enum KeyAction {
-    /// No action
+pub enum KeyAction<M: Serialize> {
     DoNothing,
     /// Exits from synced terminal
     Exit,
     /// Sends a user's input to the server defined by ShellServer
-    SendMessage(Message), // TODO: Message -> Serializable
+    SendMessage(M),
 }
 
 
@@ -26,15 +24,18 @@ pub enum KeyAction {
 ///
 /// ```
 ///
-pub trait ShellClient: Sized {
-    /// Given a key press, defines actions to take. Returns a KeyAction to trigger additional API actions.
+pub trait ShellClient<M, R>
+    where
+        M: Serialize,
+        R: DeserializeOwned + Send,
+{    /// Given a key press, defines actions to take. Returns a KeyAction to trigger additional API actions.
     ///
     /// # Examples
     /// ```
     ///
     /// ```
     ///
-    fn on_key(&mut self, super::Key) -> KeyAction;
+    fn on_key(&mut self, super::Key) -> KeyAction<M>;
 
     /// When client receives a response from the server, defines any actions to take.
     ///
@@ -43,7 +44,7 @@ pub trait ShellClient: Sized {
     ///
     /// ```
     ///
-    fn receive_response(&mut self, Response); // TODO: Response -> Deserializable
+    fn receive_response(&mut self, R);
 
     /// Initializes the client UI.
     ///
@@ -78,13 +79,23 @@ pub trait ShellClient: Sized {
 /// ```
 ///
 /// ```
-pub fn connect<C: ShellClient>(client: C) {
+pub fn connect<C, M, R>(client: C)
+where
+    M: Serialize,
+    R: DeserializeOwned + Send + 'static,
+    C: ShellClient<M, R>,
+{
     let mut connection = ShellConnection::connect("127.0.0.1:8080").unwrap();
 
     render(&mut connection, client);
 }
 
-fn render<C: ShellClient>(connection: &mut ShellConnection, mut client: C) {
+fn render<C, M, R>(connection: &mut ShellConnection, mut client: C)
+where
+    M: Serialize,
+    R: DeserializeOwned + Send + 'static,
+    C: ShellClient<M, R>,
+{
     // Input thread
     let (input_tx, input_rx) = chan::sync(0);
     thread::spawn(move || {

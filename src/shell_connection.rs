@@ -3,7 +3,7 @@ use std::net::TcpStream;
 
 use serde_json;
 
-use messages::*;
+use super::{DeserializeOwned, Serialize};
 
 pub(crate) struct ShellConnection {
     stream: TcpStream,
@@ -29,14 +29,14 @@ impl ShellConnection {
         })
     }
 
-    pub fn send_input(&mut self, msg: Message) -> io::Result<usize> {
+    pub fn send_input<M: Serialize>(&mut self, msg: M) -> io::Result<usize> {
         let mut sendable = serde_json::to_vec(&msg).unwrap();
         sendable.push(b'\n');
 
         self.stream.write(&sendable)
     }
 
-    pub fn read_response(&self) -> Result<Response, String> {
+    pub fn read_response<R: DeserializeOwned>(&self) -> Result<R, String> {
         let mut resp = String::new();
         BufReader::new(&self.stream)
             .read_line(&mut resp)

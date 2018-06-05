@@ -14,4 +14,5 @@ pub mod messages;
 pub mod server;
 mod shell_connection;
 
+pub use serde::{Serialize, de::DeserializeOwned};
 pub use termion::event::Key;

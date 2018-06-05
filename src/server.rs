@@ -4,9 +4,8 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-use messages::*;
-
 use serde_json;
+use super::{DeserializeOwned, Serialize};
 
 /// Trait implemented by a struct to define customizable functionality for a synchronous terminal server.
 ///
@@ -15,8 +14,12 @@ use serde_json;
 ///
 /// ```
 ///
-pub trait ShellServer {
-    fn process_input(&self, Message) -> Result<Response, String>;
+pub trait ShellServer<M, R>
+where
+    M: DeserializeOwned + Send + 'static,
+    R: Serialize + Send + 'static + Clone,
+{
+    fn process_input(&self, M) -> R;
 }
 
 /// Takes in an instances of a ShellServer, and starts a server that synchronous terminals clients
@@ -27,10 +30,15 @@ pub trait ShellServer {
 ///
 /// ```
 ///
-pub fn spawn_bash_and_listen<S: ShellServer>(server: S) {
+pub fn spawn_bash_and_listen<M, R, S>(server: S)
+where
+    M: DeserializeOwned + Send + 'static,
+    R: Serialize + Send + 'static + Clone,
+    S: ShellServer<M, R>,
+{
     let listener = TcpListener::bind("127.0.0.1:8080").unwrap();
 
-    let (stm_shl_sx, stm_shl_rx) = channel::<Message>();
+    let (stm_shl_sx, stm_shl_rx) = channel::<M>();
     let shl_stm_sxs = Arc::new(Mutex::new(Vec::new()));
 
     let sxs = shl_stm_sxs.clone();
@@ -43,15 +51,18 @@ pub fn spawn_bash_and_listen<S: ShellServer>(server: S) {
     }
 }
 
-
-fn pipe_stream_to_shell_and_relay_response<S: ShellServer>(
-    stm_shl_rx: &Receiver<Message>,
-    shl_stm_sxs: &Arc<Mutex<Vec<Sender<Response>>>>,
+fn pipe_stream_to_shell_and_relay_response<M, R, S>(
+    stm_shl_rx: &Receiver<M>,
+    shl_stm_sxs: &Arc<Mutex<Vec<Sender<R>>>>,
     server: &S,
-) {
+) where
+    M: DeserializeOwned + Send + 'static,
+    R: Serialize + Send + 'static + Clone,
+    S: ShellServer<M, R>,
+{
     let input = stm_shl_rx.recv().expect("Nothing to receive");
 
-    let response = server.process_input(input).unwrap();
+    let response = server.process_input(input);
 
     let mut guard = shl_stm_sxs.lock().expect("Poisoned Vec of outgoing sxs");
     guard.retain(|shl_stm_sx| shl_stm_sx.send(response.clone()).is_ok());
@@ -59,11 +70,14 @@ fn pipe_stream_to_shell_and_relay_response<S: ShellServer>(
     println!("MAIN: {} clients relayed to", guard.len());
 }
 
-fn handle_incoming_streams(
-    shl_stm_sxs: Arc<Mutex<Vec<Sender<Response>>>>,
+fn handle_incoming_streams<M, R>(
+    shl_stm_sxs: Arc<Mutex<Vec<Sender<R>>>>,
     listener: TcpListener,
-    stm_shl_sx: Sender<Message>,
-) {
+    stm_shl_sx: Sender<M>,
+) where
+    M: DeserializeOwned + Send + 'static,
+    R: Serialize + Send + 'static + Clone,
+{
     for stream in listener.incoming() {
         match stream {
             Ok(mut stream) => {
@@ -80,11 +94,14 @@ fn handle_incoming_streams(
     }
 }
 
-fn handle_new_stream(
-    stm_shl_sx: Sender<Message>,
-    shl_stm_sxs: Arc<Mutex<Vec<Sender<Response>>>>,
+fn handle_new_stream<M, R>(
+    stm_shl_sx: Sender<M>,
+    shl_stm_sxs: Arc<Mutex<Vec<Sender<R>>>>,
     stream: TcpStream,
-) {
+) where
+    M: DeserializeOwned + Send + 'static,
+    R: Serialize + Send + 'static + Clone,
+{
     // TODO: lock some item to prevent sending/receiving while threads spin up
 
     println!(
@@ -103,7 +120,7 @@ fn handle_new_stream(
     });
 
     // Handle writing to the stream
-    let (shl_stm_sx, shl_stm_rx) = channel::<Response>();
+    let (shl_stm_sx, shl_stm_rx) = channel::<R>();
     {
         shl_stm_sxs.lock().unwrap().push(shl_stm_sx);
     }
@@ -127,11 +144,10 @@ fn handle_new_stream(
     };
 }
 
-fn receive_and_pass_along_line(
-    stream: TcpStream,
-    stm_shl: Sender<Message>,
-    alive: Arc<Mutex<bool>>,
-) {
+fn receive_and_pass_along_line<M>(stream: TcpStream, stm_shl: Sender<M>, alive: Arc<Mutex<bool>>)
+where
+    M: DeserializeOwned + Send + 'static,
+{
     println!(
         "{:?} reading input from {}",
         thread::current().id(),
@@ -142,7 +158,7 @@ fn receive_and_pass_along_line(
     while let Some(maybe_line) = lines.next() {
         match maybe_line {
             Ok(mut line) => {
-                let user_input = serde_json::from_str::<Message>(&line).unwrap();
+                let user_input = serde_json::from_str::<M>(&line).unwrap();
                 stm_shl.send(user_input).unwrap();
             }
             Err(e) => {
@@ -162,11 +178,10 @@ fn receive_and_pass_along_line(
     );
 }
 
-fn relay_response_back(
-    mut stream: TcpStream,
-    shl_stm_rx: Receiver<Response>,
-    alive: Arc<Mutex<bool>>,
-) {
+fn relay_response_back<R>(mut stream: TcpStream, shl_stm_rx: Receiver<R>, alive: Arc<Mutex<bool>>)
+where
+    R: Serialize + Send + 'static + Clone,
+{
     println!(
         "{:?} relaying responses to {}",
         thread::current().id(),
