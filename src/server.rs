@@ -30,7 +30,7 @@ where
 ///
 /// ```
 ///
-pub fn spawn_bash_and_listen<M, R, S>(server: S)
+pub fn spawn_shell_and_listen<M, R, S>(server: S)
 where
     M: DeserializeOwned + Send + 'static,
     R: Serialize + Send + 'static + Clone,
