@@ -38,6 +38,10 @@ impl App {
 }
 
 impl syncterm::client::ShellClient<Message, Response> for App {
+    fn server_url(&self) -> String {
+        "127.0.0.1:8080".to_owned()
+    }
+
     fn on_key(&mut self, key: syncterm::Key) -> syncterm::client::KeyAction<Message> {
         match key {
             syncterm::Key::Ctrl('c') | syncterm::Key::Esc => {

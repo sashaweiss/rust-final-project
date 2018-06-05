@@ -17,145 +17,92 @@ pub enum KeyAction<M: Serialize> {
 }
 
 /// Trait implemented by a struct to define customizable functionality for a synchronous terminal client.
-///
-/// # Examples
-/// ```
-/// pub struct App {
-///    user_name: String,
-///    input_buffer: String,
-///    input_mode: Mode,
-///    messages: Vec<(DateTime<Local>, String, String)>,
-///}
-///
-///impl App {
-///    pub fn new(user_name: String) -> App {
-///        App {
-///            user_name,
-///            input_buffer: String::new(),
-///            input_mode: Mode::Lower,
-///            messages: Vec::new(),
-///        }
-///    }
-///}
-///
-/// ```
-///
 pub trait ShellClient<M, R>
 where
     M: Serialize,
     R: DeserializeOwned + Send,
 {
-    /// Given a key press, defines actions to take. Returns a KeyAction to trigger additional API actions.
+    /// Returns the URL of the shell server to connect to.
+    fn server_url(&self) -> String;
+
+    /// Given a key press, defines actions to take.
+    /// Returns a [KeyAction](enum.KeyAction.html) to signal next library action.
     ///
     /// # Examples
     /// ```
-    /// fn on_key(&mut self, key: syncterm::Key) -> syncterm::client::KeyAction<Message> {
+    /// # use syncterm::Key;
+    /// # use syncterm::client::KeyAction;
+    ///
+    /// fn on_key(&mut self, key: Key) -> KeyAction<Message> {
     ///        match key {
-    ///            syncterm::Key::Ctrl('c') | syncterm::Key::Esc => {
-    ///                return syncterm::client::KeyAction::Exit;
+    ///            Key::Ctrl('c') | Key::Esc => {
+    ///                return KeyAction::Exit;
     ///            }
-    ///            syncterm::Key::Char('\n') => {
+    ///            Key::Char('\n') => {
     ///                let message = self.input_buffer.drain(..).collect::<String>();
-    ///                match message.as_ref() {
-    ///                    "LOWER" => {
-    ///                        self.input_mode = Mode::Lower;
-    ///                    }
-    ///                    "UPPER" => {
-    ///                        self.input_mode = Mode::Upper;
-    ///                    }
-    ///                    _ => {
-    ///                        return syncterm::client::KeyAction::SendMessage(Message {
-    ///                            content: message,
-    ///                            mode: self.input_mode.clone(),
-    ///                            user_name: self.user_name.clone(),
-    ///                        });
-    ///                    }
-    ///                }
+    ///                return KeyAction::SendMessage(message);
     ///            }
-    ///            syncterm::Key::Char(c) => {
+    ///            Key::Char(c) => {
     ///                self.input_buffer.push(c);
     ///            }
-    ///            syncterm::Key::Backspace => {
+    ///            Key::Backspace => {
     ///                self.input_buffer.pop();
     ///            }
     ///            _ => {}
     ///        }
     ///
-    ///        syncterm::client::KeyAction::DoNothing
+    ///        KeyAction::DoNothing
     ///    }
-    ///
     /// ```
-    ///
     fn on_key(&mut self, super::Key) -> KeyAction<M>;
 
     /// When client receives a response from the server, defines any actions to take.
     ///
     /// # Examples
-    /// ```
-    /// fn receive_response(&mut self, response: Response) {
-    ///     self.messages.push((Local::now(), response.og_msg.user_name, response.response));
+    /// ```no_run
+    /// fn receive_response(&mut self, response: String) {
+    ///     self.messages.push(response);
     ///}
     /// ```
     ///
     fn receive_response(&mut self, R);
 
-    /// Initializes the client UI.
-    ///
-    /// # Examples
-    /// ```
-    ///     fn first_draw(&mut self) {
-    ///        println!("Welcome! Type UPPER for uppercase mode and LOWER for lowercase mode");
-    ///    }
-    ///
-    /// ```
-    ///
+    /// Does any work to initialize the client UI.
     fn first_draw(&mut self);
 
-    /// Updates the client UI (called in a loop).
+    /// Updates the client UI (called in an animation-style update loop).
     ///
     /// # Examples
     /// ```
-    ///
-    ///fn draw(&mut self) {
-    /// if let Some(m) = self.messages.pop(){
-    ///        println!("{}: {} >> {}", m.0.format("%H:%M:%S").to_string(),
-    ///                 m.1,
-    ///                 m.2);
-    ///
+    /// fn draw(&mut self) {
+    ///     if let Some(m) = self.messages.pop() {
+    ///         println!("Message: {}", m);
     ///     }
-    ///}
-    ///
+    /// }
     /// ```
-    ///
     fn draw(&mut self);
 
-    /// Client UI right after exiting shared terminal.
-    ///
-    /// # Examples
-    /// ```
-    ///    fn last_draw(&mut self) {
-    ///        println!("GOODBYE!!!");
-    ///    }
-    /// ```
-    ///
+    /// Does any work to tear-down the client UI.
     fn last_draw(&mut self);
 }
 
-/// Takes in an instances of a Shell Client and connects to the server.
-/// /// # Examples
-/// ```
-///  syncterm::client::connect(client::App::new(name));
+/// The "main" function for ShellClients.
 ///
-/// ```
-pub fn connect<C, M, R>(client: C)
+/// Captures stdin, uses the ShellClient to send messages to and receive responses from
+/// a server, and runs an animation update loop to render the UI.
+///
+/// Returns an error only if the client's `server_url` fails to connect.
+pub fn connect<C, M, R>(client: C) -> Result<(), String>
 where
     M: Serialize,
     R: DeserializeOwned + Send + 'static,
     C: ShellClient<M, R>,
 {
-    let mut connection = ShellConnection::connect("127.0.0.1:8080").unwrap();
+    let mut connection = ShellConnection::connect("127.0.0.1:8080")
+        .map_err(|e| format!("Failed to connect to server: {:?}", e))?;
 
     render(&mut connection, client);
+    Ok(())
 }
 
 fn render<C, M, R>(connection: &mut ShellConnection, mut client: C)

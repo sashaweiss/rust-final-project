@@ -7,54 +7,47 @@ use std::thread;
 use super::{DeserializeOwned, Serialize};
 use serde_json;
 
-/// Trait implemented by a struct to define customizable functionality for a synchronous terminal server.
-///
+/// Trait implemented by a struct to define customizable functionality for a synchronized
+/// command-line app server.
 pub trait ShellServer<M, R>
 where
     M: DeserializeOwned + Send + 'static,
     R: Serialize + Send + 'static + Clone,
 {
-    /// Process input from user before relaying it to other clients.
+    /// The local address to which the server will bind.
+    fn local_address(&self) -> String;
+
+    /// Process input received from a single client. The returned value will be relayed to all
+    /// clients.
+    ///
+    /// This function will be synchronously called on inputs in the order that they are received
+    /// from clients.
     ///
     /// # Examples
     /// ```no_run
-    /// fn process_input(&self, input: Message) -> Response {
-    ///        let response = match input.mode {
-    ///            Mode::Upper => {
-    ///                let mut s = input.content.to_uppercase().to_owned();
-    ///                s.push_str("!!!");
-    ///                s
-    ///            }
-    ///            Mode::Lower => {
-    ///                input.content.to_lowercase().to_owned()
-    ///            }
-    ///        };
-    ///
-    ///        Response {
-    ///            og_msg: input,
-    ///            response,
-    ///        }
-    ///    }
-    ///
+    /// fn process_input(&self, input: String) -> String {
+    ///     input.to_uppercase()
+    /// }
     /// ```
     fn process_input(&self, M) -> R;
 }
 
-/// Takes in an instances of a ShellServer, and starts a server that synchronous terminals clients
-/// can connect to.
+/// The "main" function for ShellServers.
 ///
-/// # Examples
-/// ```no_run
-/// syncterm::server::spawn_shell_and_listen(server::App());
-/// ```
+/// Binds a listener to the ShellServer's local address, handles client connections, pipes client
+/// inputs to the server's `process_input` method, and relays the returned response to all active
+/// client connections.
 ///
-pub fn spawn_shell_and_listen<M, R, S>(server: S)
+/// Errors if the listener fails to bind.
+pub fn spawn_shell_and_listen<M, R, S>(server: S) -> Result<(), String>
 where
     M: DeserializeOwned + Send + 'static,
     R: Serialize + Send + 'static + Clone,
     S: ShellServer<M, R>,
 {
-    let listener = TcpListener::bind("127.0.0.1:8080").unwrap();
+    let addr = server.local_address();
+    let listener =
+        TcpListener::bind(&addr).map_err(|e| format!("Failed to bind to {:?}: {:?}", addr, e))?;
 
     let (stm_shl_sx, stm_shl_rx) = channel::<M>();
     let shl_stm_sxs = Arc::new(Mutex::new(Vec::new()));
@@ -67,6 +60,8 @@ where
     loop {
         pipe_stream_to_shell_and_relay_response(&stm_shl_rx, &shl_stm_sxs, &server);
     }
+
+    unreachable!();
 }
 
 fn pipe_stream_to_shell_and_relay_response<M, R, S>(

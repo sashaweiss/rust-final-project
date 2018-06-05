@@ -24,6 +24,10 @@ impl App {
 }
 
 impl syncterm::client::ShellClient<Message, Response> for App {
+    fn server_url(&self) -> String {
+        "127.0.0.1:8080".to_owned()
+    }
+
     fn on_key(&mut self, key: syncterm::Key) -> syncterm::client::KeyAction<Message> {
         match key {
             syncterm::Key::Ctrl('c') | syncterm::Key::Esc => {
@@ -60,7 +64,8 @@ impl syncterm::client::ShellClient<Message, Response> for App {
     }
 
     fn receive_response(&mut self, response: Response) {
-        self.messages.push((Local::now(), response.og_msg.user_name, response.response));
+        self.messages
+            .push((Local::now(), response.og_msg.user_name, response.response));
     }
 
     fn first_draw(&mut self) {
@@ -72,11 +77,8 @@ impl syncterm::client::ShellClient<Message, Response> for App {
     }
 
     fn draw(&mut self) {
-        if let Some(m) = self.messages.pop(){
-            println!("{}: {} >> {}", m.0.format("%H:%M:%S").to_string(),
-                m.1,
-                m.2);
-
+        if let Some(m) = self.messages.pop() {
+            println!("{}: {} >> {}", m.0.format("%H:%M:%S").to_string(), m.1, m.2);
         }
     }
 }

@@ -7,6 +7,10 @@ use syncterm;
 pub struct App();
 
 impl syncterm::server::ShellServer<Message, Response> for App {
+    fn local_address(&self) -> String {
+        "127.0.0.1:8080".to_owned()
+    }
+
     fn process_input(&self, input: Message) -> Response {
         let response = match input.mode {
             Mode::Chat => {
