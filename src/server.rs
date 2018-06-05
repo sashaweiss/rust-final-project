@@ -1,6 +1,5 @@
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
-use std::process::Command;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -9,11 +8,11 @@ use messages::*;
 
 use serde_json;
 
-trait ShellServer {
-    fn process_input(Message) -> Result<Response, String>;
+pub trait ShellServer {
+    fn process_input(&self, Message) -> Result<Response, String>;
 }
 
-pub fn spawn_bash_and_listen() {
+pub fn spawn_bash_and_listen<S: ShellServer>(server: S) {
     let listener = TcpListener::bind("127.0.0.1:8080").unwrap();
 
     let (stm_shl_sx, stm_shl_rx) = channel::<Message>();
@@ -25,75 +24,19 @@ pub fn spawn_bash_and_listen() {
     });
 
     loop {
-        pipe_stream_to_shell_and_relay_response(&stm_shl_rx, &shl_stm_sxs);
+        pipe_stream_to_shell_and_relay_response(&stm_shl_rx, &shl_stm_sxs, &server);
     }
 }
 
-fn run_command(content: &str) -> Result<String, String> {
-    let mut words = content.split_whitespace();
-    if let Some(cmd) = words.next() {
-        let mut process = Command::new(cmd);
-        while let Some(arg) = words.next() {
-            process.arg(arg);
-        }
 
-        match process.output() {
-            Ok(output) => {
-                let stdout = ::std::str::from_utf8(&output.stdout).expect("Non-utf8 stdout");
-                let stderr = ::std::str::from_utf8(&output.stderr).expect("Non-utf8 stderr");
-
-                println!("MAIN: shell returned stdout {:?}, relaying...", stdout);
-                if stderr != "" {
-                    println!(
-                        "MAIN: shell returned stderr {:?}, thought you should know...",
-                        stderr
-                    );
-                }
-
-                Ok(stdout.to_owned()) // TODO: merge stdout and stderr
-            }
-            Err(_) => {
-                println!("Bad input: {:?}", content);
-                Err(format!("Bad input: {:?}", content))
-            }
-        }
-    } else {
-        println!("Empty input");
-        Err("Empty input".to_owned())
-    }
-}
-
-fn pipe_stream_to_shell_and_relay_response(
+fn pipe_stream_to_shell_and_relay_response<S: ShellServer>(
     stm_shl_rx: &Receiver<Message>,
     shl_stm_sxs: &Arc<Mutex<Vec<Sender<Response>>>>,
+    server: &S,
 ) {
     let input = stm_shl_rx.recv().expect("Nothing to receive");
 
-    let response = match input.mode {
-        Mode::Chat => {
-            println!(
-                "MAIN: received chat from {:?}: {:?}",
-                input.user_name, input.content
-            );
-            input.content.clone()
-        }
-        Mode::Cmd => {
-            println!(
-                "MAIN: received command from {:?}: {:?}",
-                input.user_name, input.content
-            );
-
-            match run_command(&input.content) {
-                Ok(resp) => resp,
-                Err(e) => format!("Error running command: {}", e),
-            }
-        }
-    };
-
-    let response = Response {
-        og_msg: input,
-        response,
-    };
+    let response = server.process_input(input).unwrap();
 
     let mut guard = shl_stm_sxs.lock().expect("Poisoned Vec of outgoing sxs");
     guard.retain(|shl_stm_sx| shl_stm_sx.send(response.clone()).is_ok());
