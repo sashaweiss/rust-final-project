@@ -1,13 +1,12 @@
-extern crate syncterm;
-
-use syncterm::messages::*;
-use syncterm::server::*;
-
 use std::process::Command;
 
-struct App();
+use messages::*;
 
-impl ShellServer<Message, Response> for App {
+use syncterm;
+
+pub struct App();
+
+impl syncterm::server::ShellServer<Message, Response> for App {
     fn process_input(&self, input: Message) -> Response {
         let response = match input.mode {
             Mode::Chat => {
@@ -69,8 +68,4 @@ fn run_command(content: &str) -> Result<String, String> {
         println!("Empty input");
         Err("Empty input".to_owned())
     }
-}
-
-fn main() {
-    spawn_bash_and_listen(App());
 }

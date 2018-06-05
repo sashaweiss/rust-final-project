@@ -1,16 +1,9 @@
 /// Much of this example borrows from the `tui-rs` examples, and was modified for our purposes.
 /// See: https://github.com/fdehau/tui-rs/blob/master/examples/user_input.rs
-extern crate chrono;
-extern crate syncterm;
-extern crate termion;
-extern crate tui;
-
 use chrono::prelude::*;
 const TIME_FORMAT: &'static str = "%H:%M:%S";
 
-use syncterm::Key;
-use syncterm::client::*;
-use syncterm::messages::*;
+use syncterm;
 
 use tui::Terminal;
 use tui::backend::MouseBackend;
@@ -18,7 +11,9 @@ use tui::layout::{Direction, Group, Rect, Size};
 use tui::style::{Color, Style};
 use tui::widgets::{Block, Borders, Paragraph, Widget};
 
-struct App {
+use messages::*;
+
+pub struct App {
     user_name: String,
     size: Rect,
     input: String,
@@ -29,7 +24,7 @@ struct App {
 }
 
 impl App {
-    fn new(user_name: String) -> App {
+    pub fn new(user_name: String) -> App {
         App {
             user_name,
             size: Rect::default(),
@@ -42,13 +37,13 @@ impl App {
     }
 }
 
-impl ShellClient<Message, Response> for App {
-    fn on_key(&mut self, key: syncterm::Key) -> KeyAction<Message> {
+impl syncterm::client::ShellClient<Message, Response> for App {
+    fn on_key(&mut self, key: syncterm::Key) -> syncterm::client::KeyAction<Message> {
         match key {
-            Key::Ctrl('c') | Key::Esc => {
-                return KeyAction::Exit;
+            syncterm::Key::Ctrl('c') | syncterm::Key::Esc => {
+                return syncterm::client::KeyAction::Exit;
             }
-            Key::Char('\n') => {
+            syncterm::Key::Char('\n') => {
                 let message = self.input.drain(..).collect::<String>();
                 match message.as_ref() {
                     "CHAT" => {
@@ -64,7 +59,7 @@ impl ShellClient<Message, Response> for App {
                         };
                     }
                     _ => {
-                        return KeyAction::SendMessage(Message {
+                        return syncterm::client::KeyAction::SendMessage(Message {
                             content: message,
                             mode: self.input_mode.clone(),
                             user_name: self.user_name.clone(),
@@ -72,16 +67,16 @@ impl ShellClient<Message, Response> for App {
                     }
                 }
             }
-            Key::Char(c) => {
+            syncterm::Key::Char(c) => {
                 self.input.push(c);
             }
-            Key::Backspace => {
+            syncterm::Key::Backspace => {
                 self.input.pop();
             }
             _ => {}
         }
 
-        KeyAction::DoNothing
+        syncterm::client::KeyAction::DoNothing
     }
 
     fn receive_response(&mut self, response: Response) {
@@ -185,15 +180,4 @@ impl ShellClient<Message, Response> for App {
 
         self.terminal.draw().unwrap();
     }
-}
-
-fn main() {
-    let mut args = ::std::env::args();
-    args.next();
-    let name = match args.next() {
-        Some(name) => name,
-        None => "jesse".to_owned(),
-    };
-
-    connect(App::new(name));
 }
