@@ -21,6 +21,23 @@ pub enum KeyAction<M: Serialize> {
 ///
 /// # Examples
 /// ```
+/// pub struct App {
+///    user_name: String,
+///    input_buffer: String,
+///    input_mode: Mode,
+///    messages: Vec<(DateTime<Local>, String, String)>,
+///}
+///
+///impl App {
+///    pub fn new(user_name: String) -> App {
+///        App {
+///            user_name,
+///            input_buffer: String::new(),
+///            input_mode: Mode::Lower,
+///            messages: Vec::new(),
+///        }
+///    }
+///}
 ///
 /// ```
 ///
@@ -32,6 +49,40 @@ pub trait ShellClient<M, R>
     ///
     /// # Examples
     /// ```
+    /// fn on_key(&mut self, key: syncterm::Key) -> syncterm::client::KeyAction<Message> {
+///        match key {
+///            syncterm::Key::Ctrl('c') | syncterm::Key::Esc => {
+///                return syncterm::client::KeyAction::Exit;
+///            }
+///            syncterm::Key::Char('\n') => {
+///                let message = self.input_buffer.drain(..).collect::<String>();
+///                match message.as_ref() {
+///                    "LOWER" => {
+///                        self.input_mode = Mode::Lower;
+///                    }
+///                    "UPPER" => {
+///                        self.input_mode = Mode::Upper;
+///                    }
+///                    _ => {
+///                        return syncterm::client::KeyAction::SendMessage(Message {
+///                            content: message,
+///                            mode: self.input_mode.clone(),
+///                            user_name: self.user_name.clone(),
+///                        });
+///                    }
+///                }
+///            }
+///            syncterm::Key::Char(c) => {
+///                self.input_buffer.push(c);
+///            }
+///            syncterm::Key::Backspace => {
+///                self.input_buffer.pop();
+///            }
+///            _ => {}
+///        }
+///
+///        syncterm::client::KeyAction::DoNothing
+///    }
     ///
     /// ```
     ///
@@ -41,7 +92,9 @@ pub trait ShellClient<M, R>
     ///
     /// # Examples
     /// ```
-    ///
+   /// fn receive_response(&mut self, response: Response) {
+   ///     self.messages.push((Local::now(), response.og_msg.user_name, response.response));
+    ///}
     /// ```
     ///
     fn receive_response(&mut self, R);
@@ -50,6 +103,9 @@ pub trait ShellClient<M, R>
     ///
     /// # Examples
     /// ```
+    ///     fn first_draw(&mut self) {
+    ///        println!("Welcome! Type UPPER for uppercase mode and LOWER for lowercase mode");
+    ///    }
     ///
     /// ```
     ///
@@ -60,6 +116,15 @@ pub trait ShellClient<M, R>
     /// # Examples
     /// ```
     ///
+    ///fn draw(&mut self) {
+       /// if let Some(m) = self.messages.pop(){
+    ///        println!("{}: {} >> {}", m.0.format("%H:%M:%S").to_string(),
+    ///                 m.1,
+    ///                 m.2);
+///
+   ///     }
+    ///}
+    ///
     /// ```
     ///
     fn draw(&mut self);
@@ -68,7 +133,9 @@ pub trait ShellClient<M, R>
     ///
     /// # Examples
     /// ```
-    ///
+    ///    fn last_draw(&mut self) {
+    ///        println!("GOODBYE!!!");
+    ///    }
     /// ```
     ///
     fn last_draw(&mut self);
@@ -77,6 +144,7 @@ pub trait ShellClient<M, R>
 /// Takes in an instances of a Shell Client and connects to the server.
 /// /// # Examples
 /// ```
+///  syncterm::client::connect(client::App::new(name));
 ///
 /// ```
 pub fn connect<C, M, R>(client: C)

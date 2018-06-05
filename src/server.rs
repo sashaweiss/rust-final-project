@@ -9,16 +9,35 @@ use super::{DeserializeOwned, Serialize};
 
 /// Trait implemented by a struct to define customizable functionality for a synchronous terminal server.
 ///
-/// # Examples
-/// ```
-///
-/// ```
-///
 pub trait ShellServer<M, R>
 where
     M: DeserializeOwned + Send + 'static,
     R: Serialize + Send + 'static + Clone,
 {
+
+/// Process input from user before relaying it to other clients.
+///
+/// # Examples
+/// ```no_run
+/// fn process_input(&self, input: Message) -> Response {
+///        let response = match input.mode {
+///            Mode::Upper => {
+///                let mut s = input.content.to_uppercase().to_owned();
+///                s.push_str("!!!");
+///                s
+///            }
+///            Mode::Lower => {
+///                input.content.to_lowercase().to_owned()
+///            }
+///        };
+///
+///        Response {
+///            og_msg: input,
+///            response,
+///        }
+///    }
+///
+/// ```
     fn process_input(&self, M) -> R;
 }
 
@@ -26,8 +45,8 @@ where
 /// can connect to.
 ///
 /// # Examples
-/// ```
-///
+/// ```no_run
+/// syncterm::server::spawn_shell_and_listen(server::App());
 /// ```
 ///
 pub fn spawn_shell_and_listen<M, R, S>(server: S)
