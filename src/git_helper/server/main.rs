@@ -1,34 +1,30 @@
 extern crate syncterm;
 
-use syncterm::server::*;
 use syncterm::messages::*;
+use syncterm::server::*;
 
 use std::process::Command;
 
-
-struct App {
-}
+struct App {}
 
 impl App {
     fn new() -> App {
-        App {
-            
-        }
+        App {}
     }
 }
 
 impl ShellServer for App {
-    fn process_input(&self, input: Message) -> Result<Response, String>{
+    fn process_input(&self, input: Message) -> Result<Response, String> {
         match input.mode {
             Mode::Chat => {
                 println!(
                     "MAIN: received chat from {:?}: {:?}",
                     input.user_name, input.content
                 );
-                return Ok(Response{
+                return Ok(Response {
                     og_msg: input,
                     response: "response".to_owned(),
-                })
+                });
             }
             Mode::Cmd => {
                 println!(
@@ -37,18 +33,16 @@ impl ShellServer for App {
                 );
 
                 return match run_command(&input.content) {
-                    Ok(_) => Ok(Response{
+                    Ok(_) => Ok(Response {
                         og_msg: input,
                         response: "response".to_owned(),
                     }),
                     Err(e) => Err(format!("Error running command: {}", e)),
-                }
+                };
             }
         };
     }
-
 }
-
 
 fn run_command(content: &str) -> Result<String, String> {
     let mut words = content.split_whitespace();
@@ -84,8 +78,6 @@ fn run_command(content: &str) -> Result<String, String> {
     }
 }
 
-
 fn main() {
-
     spawn_bash_and_listen(App::new());
 }

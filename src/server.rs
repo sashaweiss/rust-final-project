@@ -28,7 +28,6 @@ pub fn spawn_bash_and_listen<S: ShellServer>(server: S) {
     }
 }
 
-
 fn pipe_stream_to_shell_and_relay_response<S: ShellServer>(
     stm_shl_rx: &Receiver<Message>,
     shl_stm_sxs: &Arc<Mutex<Vec<Sender<Response>>>>,
