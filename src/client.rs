@@ -2,15 +2,17 @@ use std::io;
 use std::thread;
 
 use chan;
+pub use termion::event::Key;
 use termion::input::TermRead;
 
 use serde::{Serialize, de::DeserializeOwned};
 use shell_connection::ShellConnection;
 
-/// Returned by ShellClient::on_key to specify an API action to be triggered after a key is pressed.
+/// Returned by `ShellClient::on_key` to specify an API action to be triggered after a key is pressed.
 ///
-/// M implement serde::Serialize to allow robust client-server communication.
+/// M must implement `serde::Serialize` to allow robust client-server communication.
 /// We recommend using the `serde_derive` crate and its `#[derive(Serialize)]` macro to achieve this.
+#[derive(Debug, Clone)]
 pub enum KeyAction<M: Serialize> {
     DoNothing,
     /// Exits from synced terminal
@@ -21,7 +23,7 @@ pub enum KeyAction<M: Serialize> {
 
 /// Trait implemented by a struct to define customizable functionality for a synchronous terminal client.
 ///
-/// M and R must implement serde::Serialize and serde::de::DeserializeOwned, respectively, to allow
+/// M and R must implement `serde::Serialize` and `serde::de::DeserializeOwned`, respectively, to allow
 /// robust client-server communication. We recommend using the `serde_derive` crate and its
 /// `#[derive(Serialize, Deserialize)]` macros to achieve this.
 pub trait ShellClient<M, R>
@@ -61,7 +63,7 @@ where
     ///        KeyAction::DoNothing
     ///    }
     /// ```
-    fn on_key(&mut self, super::Key) -> KeyAction<M>;
+    fn on_key(&mut self, key: Key) -> KeyAction<M>;
 
     /// When client receives a response from the server, defines any actions to take.
     ///
@@ -72,7 +74,7 @@ where
     ///}
     /// ```
     ///
-    fn receive_response(&mut self, R);
+    fn receive_response(&mut self, server_response: R);
 
     /// Does any work to initialize the client UI.
     fn first_draw(&mut self);

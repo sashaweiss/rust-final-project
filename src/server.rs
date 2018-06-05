@@ -10,7 +10,7 @@ use serde_json;
 /// Trait implemented by a struct to define customizable functionality for a synchronized
 /// command-line app server.
 ///
-/// M and R must implement serde::de::DeserializeOwned and serde::Serialize, respectively, to allow
+/// M and R must implement `serde::de::DeserializeOwned` and `serde::Serialize`, respectively, to allow
 /// robust client-server communication. We recommend using the `serde_derive` crate and its
 /// `#[derive(Serialize, Deserialize)]` macros to achieve this.
 pub trait ShellServer<M, R>
@@ -33,7 +33,7 @@ where
     ///     input.to_uppercase()
     /// }
     /// ```
-    fn process_input(&self, M) -> R;
+    fn process_input(&self, client_message: M) -> R;
 }
 
 /// The "main" function for ShellServers.
@@ -64,8 +64,6 @@ where
     loop {
         pipe_stream_to_shell_and_relay_response(&stm_shl_rx, &shl_stm_sxs, &server);
     }
-
-    unreachable!();
 }
 
 fn pipe_stream_to_shell_and_relay_response<M, R, S>(

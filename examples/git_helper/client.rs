@@ -42,12 +42,12 @@ impl syncterm::client::ShellClient<Message, Response> for App {
         "127.0.0.1:8080".to_owned()
     }
 
-    fn on_key(&mut self, key: syncterm::Key) -> syncterm::client::KeyAction<Message> {
+    fn on_key(&mut self, key: syncterm::client::Key) -> syncterm::client::KeyAction<Message> {
         match key {
-            syncterm::Key::Ctrl('c') | syncterm::Key::Esc => {
+            syncterm::client::Key::Ctrl('c') | syncterm::client::Key::Esc => {
                 return syncterm::client::KeyAction::Exit;
             }
-            syncterm::Key::Char('\n') => {
+            syncterm::client::Key::Char('\n') => {
                 let message = self.input.drain(..).collect::<String>();
                 match message.as_ref() {
                     "CHAT" => {
@@ -71,10 +71,10 @@ impl syncterm::client::ShellClient<Message, Response> for App {
                     }
                 }
             }
-            syncterm::Key::Char(c) => {
+            syncterm::client::Key::Char(c) => {
                 self.input.push(c);
             }
-            syncterm::Key::Backspace => {
+            syncterm::client::Key::Backspace => {
                 self.input.pop();
             }
             _ => {}

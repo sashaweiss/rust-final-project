@@ -14,8 +14,8 @@ fn main() {
     args.next();
 
     if let Some(name) = args.next() {
-        syncterm::client::connect(client::App::new(name));
+        syncterm::client::connect(client::App::new(name)).unwrap();
     } else {
-        syncterm::server::spawn_shell_and_listen(server::App());
+        syncterm::server::spawn_shell_and_listen(server::App()).unwrap();
     }
 }
