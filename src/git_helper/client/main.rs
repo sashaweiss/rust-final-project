@@ -19,6 +19,7 @@ use tui::style::{Color, Style};
 use tui::widgets::{Block, Borders, Paragraph, Widget};
 
 struct App {
+    user_name: String,
     size: Rect,
     input: String,
     input_mode: Mode,
@@ -28,8 +29,9 @@ struct App {
 }
 
 impl App {
-    fn new() -> App {
+    fn new(user_name: String) -> App {
         App {
+            user_name,
             size: Rect::default(),
             input: String::new(),
             input_mode: Mode::Chat,
@@ -64,8 +66,8 @@ impl ShellClient<Message, Response> for App {
                     _ => {
                         return KeyAction::SendMessage(Message {
                             content: message,
-                            mode: Mode::Chat,
-                            user_name: "jenie".to_owned(),
+                            mode: self.input_mode.clone(),
+                            user_name: self.user_name.clone(),
                         });
                     }
                 }
@@ -186,5 +188,12 @@ impl ShellClient<Message, Response> for App {
 }
 
 fn main() {
-    connect(App::new());
+    let mut args = ::std::env::args();
+    args.next();
+    let name = match args.next() {
+        Some(name) => name,
+        None => "jesse".to_owned(),
+    };
+
+    connect(App::new(name));
 }
