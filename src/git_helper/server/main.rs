@@ -1,6 +1,5 @@
 extern crate syncterm;
 
-use syncterm::Key;
 use syncterm::server::*;
 use syncterm::messages::*;
 
@@ -8,6 +7,14 @@ use std::process::Command;
 
 
 struct App {
+}
+
+impl App {
+    fn new() -> App {
+        App {
+            
+        }
+    }
 }
 
 impl ShellServer for App {
@@ -30,7 +37,7 @@ impl ShellServer for App {
                 );
 
                 return match run_command(&input.content) {
-                    Ok(resp) => Ok(Response{
+                    Ok(_) => Ok(Response{
                         og_msg: input,
                         response: "response".to_owned(),
                     }),
@@ -79,8 +86,6 @@ fn run_command(content: &str) -> Result<String, String> {
 
 
 fn main() {
-    let app = App{
 
-    };
-    spawn_bash_and_listen(app);
+    spawn_bash_and_listen(App::new());
 }
