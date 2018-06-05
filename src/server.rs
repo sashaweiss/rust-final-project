@@ -4,11 +4,15 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-use super::{DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 use serde_json;
 
 /// Trait implemented by a struct to define customizable functionality for a synchronized
 /// command-line app server.
+///
+/// M and R must implement serde::de::DeserializeOwned and serde::Serialize, respectively, to allow
+/// robust client-server communication. We recommend using the `serde_derive` crate and its
+/// `#[derive(Serialize, Deserialize)]` macros to achieve this.
 pub trait ShellServer<M, R>
 where
     M: DeserializeOwned + Send + 'static,

@@ -3,7 +3,7 @@ use std::net::TcpStream;
 
 use serde_json;
 
-use super::{DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 
 pub(crate) struct ShellConnection {
     stream: TcpStream,

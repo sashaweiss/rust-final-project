@@ -4,10 +4,13 @@ use std::thread;
 use chan;
 use termion::input::TermRead;
 
-use super::{DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 use shell_connection::ShellConnection;
 
 /// Returned by ShellClient::on_key to specify an API action to be triggered after a key is pressed.
+///
+/// M implement serde::Serialize to allow robust client-server communication.
+/// We recommend using the `serde_derive` crate and its `#[derive(Serialize)]` macro to achieve this.
 pub enum KeyAction<M: Serialize> {
     DoNothing,
     /// Exits from synced terminal
@@ -17,6 +20,10 @@ pub enum KeyAction<M: Serialize> {
 }
 
 /// Trait implemented by a struct to define customizable functionality for a synchronous terminal client.
+///
+/// M and R must implement serde::Serialize and serde::de::DeserializeOwned, respectively, to allow
+/// robust client-server communication. We recommend using the `serde_derive` crate and its
+/// `#[derive(Serialize, Deserialize)]` macros to achieve this.
 pub trait ShellClient<M, R>
 where
     M: Serialize,
