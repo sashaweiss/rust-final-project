@@ -4,8 +4,8 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-use serde_json;
 use super::{DeserializeOwned, Serialize};
+use serde_json;
 
 /// Trait implemented by a struct to define customizable functionality for a synchronous terminal server.
 ///
@@ -14,30 +14,29 @@ where
     M: DeserializeOwned + Send + 'static,
     R: Serialize + Send + 'static + Clone,
 {
-
-/// Process input from user before relaying it to other clients.
-///
-/// # Examples
-/// ```no_run
-/// fn process_input(&self, input: Message) -> Response {
-///        let response = match input.mode {
-///            Mode::Upper => {
-///                let mut s = input.content.to_uppercase().to_owned();
-///                s.push_str("!!!");
-///                s
-///            }
-///            Mode::Lower => {
-///                input.content.to_lowercase().to_owned()
-///            }
-///        };
-///
-///        Response {
-///            og_msg: input,
-///            response,
-///        }
-///    }
-///
-/// ```
+    /// Process input from user before relaying it to other clients.
+    ///
+    /// # Examples
+    /// ```no_run
+    /// fn process_input(&self, input: Message) -> Response {
+    ///        let response = match input.mode {
+    ///            Mode::Upper => {
+    ///                let mut s = input.content.to_uppercase().to_owned();
+    ///                s.push_str("!!!");
+    ///                s
+    ///            }
+    ///            Mode::Lower => {
+    ///                input.content.to_lowercase().to_owned()
+    ///            }
+    ///        };
+    ///
+    ///        Response {
+    ///            og_msg: input,
+    ///            response,
+    ///        }
+    ///    }
+    ///
+    /// ```
     fn process_input(&self, M) -> R;
 }
 
