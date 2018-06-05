@@ -1,6 +1,7 @@
+use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
@@ -12,14 +13,14 @@ use serde_json;
 
 struct ShellManager {
     wd: PathBuf,
-    env: Vec<(String, String)>,
+    env: HashMap<String, String>,
 }
 
 impl ShellManager {
     fn new() -> Self {
         ShellManager {
             wd: ::std::env::current_dir().unwrap(),
-            env: Vec::new(),
+            env: HashMap::new(),
         }
     }
 
@@ -112,6 +113,29 @@ fn pipe_stream_to_shell_and_relay_response(
                 Ok(resp) => resp,
                 Err(e) => format!("Error running command: {}", e),
             }
+        }
+        Mode::Cd => {
+            println!(
+                "MAIN: received CD command from {:?} to {:?}",
+                input.user_name, input.content
+            );
+
+            let new_path = Path::new(&input.content);
+            if new_path.is_absolute() {
+                shell.wd = new_path.to_path_buf();
+            } else {
+                shell.wd = shell.wd.join(new_path);
+            }
+
+            format!("Working directory set to: {:?}", shell.wd)
+        }
+        Mode::Env(key) => {
+            println!(
+                "MAIN: received ENV command from {:?} to set {:?} to {:?}",
+                input.user_name, key, input.content
+            );
+
+            shell.env
         }
     };
 

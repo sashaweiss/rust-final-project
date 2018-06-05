@@ -15,4 +15,6 @@ pub struct Response {
 pub enum Mode {
     Chat,
     Cmd,
+    Cd,
+    Env(String),
 }
