@@ -40,8 +40,8 @@ impl App {
     }
 }
 
-impl ShellClient for App {
-    fn on_key(&mut self, key: syncterm::Key) -> KeyAction {
+impl ShellClient<Message, Response> for App {
+    fn on_key(&mut self, key: syncterm::Key) -> KeyAction<Message> {
         match key {
             Key::Ctrl('c') | Key::Esc => {
                 return KeyAction::Exit;

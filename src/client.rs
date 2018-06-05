@@ -4,30 +4,44 @@ use std::thread;
 use chan;
 use termion::input::TermRead;
 
-use messages::*;
+use super::{DeserializeOwned, Serialize};
 use shell_connection::ShellConnection;
 
-pub enum KeyAction {
+pub enum KeyAction<M: Serialize> {
     DoNothing,
     Exit,
-    SendMessage(Message), // TODO: Message -> Serializable
+    SendMessage(M),
 }
 
-pub trait ShellClient: Sized {
-    fn on_key(&mut self, super::Key) -> KeyAction;
-    fn receive_response(&mut self, Response); // TODO: Response -> Deserializable
+pub trait ShellClient<M, R>
+where
+    M: Serialize,
+    R: DeserializeOwned + Send,
+{
+    fn on_key(&mut self, super::Key) -> KeyAction<M>;
+    fn receive_response(&mut self, R);
     fn draw(&mut self);
     fn first_draw(&mut self);
     fn last_draw(&mut self);
 }
 
-pub fn connect<C: ShellClient>(client: C) {
+pub fn connect<C, M, R>(client: C)
+where
+    M: Serialize,
+    R: DeserializeOwned + Send + 'static,
+    C: ShellClient<M, R>,
+{
     let mut connection = ShellConnection::connect("127.0.0.1:8080").unwrap();
 
     render(&mut connection, client);
 }
 
-fn render<C: ShellClient>(connection: &mut ShellConnection, mut client: C) {
+fn render<C, M, R>(connection: &mut ShellConnection, mut client: C)
+where
+    M: Serialize,
+    R: DeserializeOwned + Send + 'static,
+    C: ShellClient<M, R>,
+{
     // Input thread
     let (input_tx, input_rx) = chan::sync(0);
     thread::spawn(move || {
