@@ -15,16 +15,13 @@ impl App {
 
 impl ShellServer for App {
     fn process_input(&self, input: Message) -> Result<Response, String> {
-        match input.mode {
+        let response = match input.mode {
             Mode::Chat => {
                 println!(
                     "MAIN: received chat from {:?}: {:?}",
                     input.user_name, input.content
                 );
-                return Ok(Response {
-                    og_msg: input,
-                    response: "response".to_owned(),
-                });
+                input.content.clone()
             }
             Mode::Cmd => {
                 println!(
@@ -32,15 +29,17 @@ impl ShellServer for App {
                     input.user_name, input.content
                 );
 
-                return match run_command(&input.content) {
-                    Ok(_) => Ok(Response {
-                        og_msg: input,
-                        response: "response".to_owned(),
-                    }),
-                    Err(e) => Err(format!("Error running command: {}", e)),
-                };
+                match run_command(&input.content) {
+                    Ok(resp) => resp,
+                    Err(e) => return Err(format!("Error running command: {}", e)),
+                }
             }
         };
+
+        Ok(Response {
+            og_msg: input,
+            response,
+        })
     }
 }
 
