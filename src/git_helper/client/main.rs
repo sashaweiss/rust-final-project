@@ -1,3 +1,5 @@
+/// Much of this example borrows from the `tui-rs` examples, and was modified for our purposes.
+/// See: https://github.com/fdehau/tui-rs/blob/master/examples/user_input.rs
 extern crate chrono;
 extern crate syncterm;
 extern crate termion;

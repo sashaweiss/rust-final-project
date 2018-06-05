@@ -1,5 +1,3 @@
-/// This file borrowed from the `tui-rs` examples, and modified for our purposes.
-/// See: https://github.com/fdehau/tui-rs/blob/master/examples/user_input.rs
 use std::io;
 use std::thread;
 
